@@ -1,0 +1,60 @@
+{
+  "expo": {
+    "name": "Fuin Mobile",
+    "slug": "fuin",
+    "scheme": "fuin",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.sombooosteam.fuin",
+      "buildNumber": "1",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Allow Fuin Mobile to access your camera to scan Air-Gap Sync QR codes.",
+        "NSFaceIDUsageDescription": "Allow Fuin Mobile to use Face ID to unlock your secure vault."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "permissions": [
+        "android.permission.CAMERA"
+      ],
+      "package": "com.sombooosteam.fuin",
+      "versionCode": 1
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Fuin Mobile to access your camera to scan Air-Gap Sync QR codes."
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Allow Fuin Mobile to use Face ID to unlock your secure vault."
+        }
+      ],
+      "expo-sharing",
+      "expo-font",
+      "expo-share-intent"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "598d3496-2396-44ad-98b3-fba15505ef95"
+      }
+    },
+    "owner": "sombooos-team"
+  }
+}
