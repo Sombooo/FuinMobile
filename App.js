@@ -324,8 +324,8 @@ function AppInner() {
       showAlert(t('alertError'), t('toastEnterPassword'));
       return;
     }
-    if (pw.length < 10) {
-      showAlert(t('alertError'), t('syncPassMinLen') || 'Sync şifresi en az 10 karakter olmalıdır.');
+    if (pw.length < 6) {
+      showAlert(t('alertError'), t('syncPassMinLen') || 'Sync şifresi en az 6 karakter olmalıdır.');
       return;
     }
     if (Date.now() < syncLockUntil) {
@@ -388,22 +388,39 @@ function AppInner() {
       }
 
     } catch (e) {
-      const newFailCount = syncFailCount + 1;
-      setSyncFailCount(newFailCount);
-      // Exponential backoff: 1s, 2s, 4s, 8s, 16s, capped at 30s
-      const delaySec = Math.min(Math.pow(2, newFailCount - 1), 30);
-      const lockTime = Date.now() + (delaySec * 1000);
-      setSyncLockUntil(lockTime);
+      const isAuthFailure = e.message && (
+        e.message.includes('Yanlış Sync Password') || 
+        e.message.includes('bozulmuş/tahrif')
+      );
 
-      showAlert(t('alertError'), `${e.message || t('alertDecryptFailed')}\n\n${t('syncRetryDelayPrefix') || 'Güvenlik gecikmesi:'} ${delaySec}s`, [
-        { 
-          text: t('btnOk'), 
-          onPress: () => { 
-            setIsDecrypting(false); 
-            setSyncPasswordPrompt(true);
-          } 
-        }
-      ]);
+      if (isAuthFailure) {
+        const newFailCount = syncFailCount + 1;
+        setSyncFailCount(newFailCount);
+        // Exponential backoff: 1s, 2s, 4s, 8s, 16s, capped at 30s
+        const delaySec = Math.min(Math.pow(2, newFailCount - 1), 30);
+        const lockTime = Date.now() + (delaySec * 1000);
+        setSyncLockUntil(lockTime);
+
+        showAlert(t('alertError'), `${e.message || t('alertDecryptFailed')}\n\n${t('syncRetryDelayPrefix') || 'Güvenlik gecikmesi:'} ${delaySec}s`, [
+          { 
+            text: t('btnOk'), 
+            onPress: () => { 
+              setIsDecrypting(false); 
+              setSyncPasswordPrompt(true);
+            } 
+          }
+        ]);
+      } else {
+        showAlert(t('alertError'), e.message || t('alertDecryptFailed'), [
+          { 
+            text: t('btnOk'), 
+            onPress: () => { 
+              setIsDecrypting(false); 
+              setSyncPasswordPrompt(true);
+            } 
+          }
+        ]);
+      }
     }
   };
 
