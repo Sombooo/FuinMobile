@@ -1,6 +1,6 @@
 {
   "name": "fuinmobile",
-  "version": "1.0.0-beta.2",
+  "version": "1.0.0-beta.3",
   "main": "index.js",
   "dependencies": {
     "@craftzdog/react-native-buffer": "^6.1.2",
