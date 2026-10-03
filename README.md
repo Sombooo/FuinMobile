@@ -12,6 +12,9 @@ The official mobile companion for the [Fuin](https://github.com/Sombooo/Fuin) lo
 
 <br />
 
+> [!NOTE]
+> **Vibe Coding Project:** Fuin Mobile is built with AI-assisted "vibe coding". While it implements strict offline-first security principles, please explore, audit, and use it at your own discretion.
+
 ## What is Fuin Mobile?
 
 Fuin Mobile brings your Fuin password vault to your pocket without compromising on privacy. 
