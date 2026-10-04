@@ -324,8 +324,8 @@ function AppInner() {
       showAlert(t('alertError'), t('toastEnterPassword'));
       return;
     }
-    if (pw.length < 6) {
-      showAlert(t('alertError'), t('syncPassMinLen') || 'Sync şifresi en az 6 karakter olmalıdır.');
+    if (pw.length < 10) {
+      showAlert(t('alertError'), t('syncPassMinLen') || 'Sync şifresi en az 10 karakter olmalıdır.');
       return;
     }
     if (Date.now() < syncLockUntil) {
