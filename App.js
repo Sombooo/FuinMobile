@@ -271,7 +271,54 @@ function AppInner() {
     }
   }, [mode, hasLocalVault]);
 
-  const handleSyncButton = () => {
+  const handlePerformLanSync = async () => {
+    if (hasLocalVault && !vaultData) {
+      showAlert(t('alertError') || 'Kasa Kilitli', 'Senkronizasyon yapabilmek için lütfen önce kasanızın kilidini açın.');
+      return;
+    }
+
+    try {
+      setIsDecrypting(true);
+      toast.showToast('Wi-Fi üzerinden eşitleniyor...');
+      const { performLanSync } = require('./src/sync-lan-mobile');
+
+      let parsedVault = null;
+      if (vaultData) {
+        try {
+          parsedVault = typeof vaultData === 'string' ? JSON.parse(vaultData) : vaultData;
+        } catch {}
+      }
+
+      const result = await performLanSync(parsedVault || { entries: [] });
+      
+      if (result && Array.isArray(result.entries)) {
+        if (parsedVault) {
+          const updatedVault = {
+            ...parsedVault,
+            entries: result.entries
+          };
+          const updatedVaultJson = JSON.stringify(updatedVault);
+          await handleUpdateVaultData(updatedVaultJson);
+          showAlert('Eşitleme Başarılı', `Yerel ağ senkronizasyonu tamamlandı. (${result.entries.length} kayıt senkronize edildi)`);
+          setMode('vault');
+        } else {
+          setPendingPayload({
+            entries: result.entries,
+            generation: 1,
+            timestamp: result.timestamp || Date.now()
+          });
+          setMasterPasswordPrompt(true);
+          setMode('sync');
+        }
+      }
+    } catch (err) {
+      showAlert('Eşitleme Hatası', err.message || 'Masaüstü cihazına bağlanılamadı. Lütfen masaüstünde "Eşitle" butonuna basıldığından emin olun.');
+    } finally {
+      setIsDecrypting(false);
+    }
+  };
+
+  const startCameraSync = () => {
     setSyncSourceMode(mode);
     setSyncPassword('');
     setSyncPasswordPrompt(false);
@@ -287,9 +334,71 @@ function AppInner() {
     setMode('sync');
   };
 
+  const handleSyncButton = async () => {
+    try {
+      const { getPairingInfo } = require('./src/sync-lan-mobile');
+      const pairing = await getPairingInfo();
+      if (pairing) {
+        showAlert('Senkronizasyon Yöntemi', 'Eşitleme yöntemini seçin:', [
+          { text: 'Wi-Fi ile Eşitle (Önerilen)', onPress: () => handlePerformLanSync() },
+          { text: 'Air-Gap QR Tara', onPress: () => startCameraSync() },
+          { text: t('btnCancel'), style: 'cancel' }
+        ]);
+        return;
+      }
+    } catch {}
+    startCameraSync();
+  };
+
   const handleBarcodeScanned = async ({ data }) => {
     if (isDecrypting || syncPasswordPrompt || masterPasswordPrompt) return;
     
+    let pairing = null;
+    if (data && data.startsWith('{') && (data.includes('fuin-lan') || data.includes('pairKey'))) {
+      try {
+        pairing = JSON.parse(data);
+      } catch (err) {
+        console.warn('Pairing parse error:', err);
+      }
+    } else if (data && data.startsWith('fuin://pair')) {
+      try {
+        const url = new URL(data);
+        pairing = {
+          protocol: 'fuin-lan-v1',
+          deviceId: url.searchParams.get('id') || url.searchParams.get('deviceId'),
+          pairKey: url.searchParams.get('key') || url.searchParams.get('pairKey'),
+          port: parseInt(url.searchParams.get('port') || '8765', 10),
+          addresses: (url.searchParams.get('ips') || '').split(',').filter(Boolean)
+        };
+      } catch (err) {
+        console.warn('Pairing URL parse error:', err);
+      }
+    }
+
+    if (pairing && pairing.pairKey && pairing.deviceId) {
+      try {
+        const { savePairingInfo, sendPairRequest } = require('./src/sync-lan-mobile');
+        await savePairingInfo(pairing);
+        if (typeof sendPairRequest === 'function') {
+          sendPairRequest(pairing).catch(() => {});
+        }
+        showAlert(
+          'Eşleşme Başarılı',
+          `Masaüstü cihazı (${pairing.deviceId}) başarıyla eşlendi! Artık Wi-Fi üzerinden tek tıkla eşitleyebilirsiniz.`,
+          [
+            {
+              text: 'Şimdi Wi-Fi ile Eşitle',
+              onPress: () => handlePerformLanSync()
+            },
+            { text: 'Tamam', onPress: () => setMode(vaultData ? 'vault' : 'lock') }
+          ]
+        );
+        return;
+      } catch (err) {
+        console.warn('Pairing save error:', err);
+      }
+    }
+
     if (!data.startsWith('FUIN|2|')) {
       return;
     }
@@ -780,9 +889,17 @@ function AppInner() {
             </CustomText>
             <CustomText style={styles.progressPercent}>{progress}%</CustomText>
           </View>
-          <TouchableOpacity style={styles.cancelBtn} onPress={() => lockApp()}>
-            <CustomText style={styles.cancelText}>{t('btnCancel')}</CustomText>
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', gap: 10, marginHorizontal: 20, marginBottom: 20 }}>
+            <TouchableOpacity 
+              style={[styles.cancelBtn, { flex: 1, backgroundColor: theme.accent, borderColor: theme.accent }]} 
+              onPress={() => handlePerformLanSync()}
+            >
+              <CustomText style={[styles.cancelText, { color: theme.bg, fontWeight: 'bold' }]}>📶 Wi-Fi Eşitle</CustomText>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.cancelBtn, { flex: 1 }]} onPress={() => lockApp()}>
+              <CustomText style={styles.cancelText}>{t('btnCancel')}</CustomText>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
     );

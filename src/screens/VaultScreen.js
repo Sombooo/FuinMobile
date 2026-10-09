@@ -241,7 +241,14 @@ export default function VaultScreen({ vaultData, password, onLogout, onSyncReque
       if (newEntries[index].isDeleted) {
         newEntries = newEntries.filter(e => e.id !== id);
       } else {
-        newEntries[index] = { ...newEntries[index], isDeleted: true, updated: Date.now() };
+        const now = Date.now();
+        newEntries[index] = {
+          ...newEntries[index],
+          isDeleted: true,
+          deletedAt: now,
+          updated: now,
+          updatedAt: now
+        };
       }
     }
     const payload = JSON.stringify({ type: 'fuin/vault', categories: [], entries: newEntries });
@@ -255,7 +262,14 @@ export default function VaultScreen({ vaultData, password, onLogout, onSyncReque
     let newEntries = [...entries];
     const index = newEntries.findIndex(e => e.id === id);
     if (index >= 0) {
-      newEntries[index] = { ...newEntries[index], isDeleted: false, updated: Date.now() };
+      const now = Date.now();
+      newEntries[index] = {
+        ...newEntries[index],
+        isDeleted: false,
+        deletedAt: null,
+        updated: now,
+        updatedAt: now
+      };
     }
     const payload = JSON.stringify({ type: 'fuin/vault', categories: [], entries: newEntries });
     const success = await onUpdateVaultData(payload);

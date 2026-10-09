@@ -63,12 +63,18 @@ export default function EditModal({ visible, entry, allCategories, onClose, onSa
       return;
     }
     const finalCategory = category.trim() || t('cat_other');
+    const now = Date.now();
     onSave({
       id: entry ? entry.id : require('react-native-quick-crypto').randomUUID(),
       site, category: finalCategory, username, password, url, note, 
       totp: hasTotp ? totp : '', fav, 
-      created: entry ? entry.created : Date.now(),
-      updated: Date.now()
+      created: entry ? (entry.created || entry.createdAt || now) : now,
+      createdAt: entry ? (entry.createdAt || entry.created || now) : now,
+      updated: now,
+      updatedAt: now,
+      deletedAt: null,
+      isDeleted: false,
+      history: entry && Array.isArray(entry.history) ? entry.history : []
     });
   };
 
