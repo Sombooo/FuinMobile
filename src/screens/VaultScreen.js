@@ -26,6 +26,7 @@ import { useAlert } from '../components/CustomAlert';
 import { copySecure } from '../clipboardManager';
 import FuinImporters from '../services/importers';
 import VaultCardItem from '../components/VaultCardItem';
+import useVaultSearch from '../hooks/useVaultSearch';
 
 export default function VaultScreen({ 
   vaultData, 
@@ -43,16 +44,24 @@ export default function VaultScreen({
   const { t, lang, setLang } = useI18n();
   const { showAlert } = useAlert();
   
-  const DEFAULT_CATEGORIES = [t('cat_fav'), t('cat_trash'), t('cat_social'), t('cat_work'), t('cat_shopping'), t('cat_finance'), t('cat_education'), t('cat_other')];
-
   const insets = useSafeAreaInsets();
   const { theme, themeMode, changeTheme } = useTheme();
   const isLight = theme.bg === '#f5f0e8';
   const styles = useMemo(() => getStyles(theme), [theme]);
 
   const [activeTab, setActiveTab] = useState('vault'); 
-  const [activeCategory, setActiveCategory] = useState(t('cat_all'));
-  const [searchQuery, setSearchQuery] = useState('');
+
+  const {
+    searchQuery,
+    setSearchQuery,
+    activeCategory,
+    setActiveCategory,
+    parsedVault,
+    DEFAULT_CATEGORIES,
+    allCategories,
+    entries,
+    filteredEntries
+  } = useVaultSearch({ vaultData, t });
 
   const switchTabSmooth = (nextTab) => {
     if (activeTab === nextTab) return;
@@ -208,78 +217,6 @@ export default function VaultScreen({
     }
   };
 
-  const parsedVault = useMemo(() => {
-    try {
-      const parsed = JSON.parse(vaultData);
-      let rawEntries = [];
-      let rawCategories = [];
-      
-      if (Array.isArray(parsed)) {
-        rawEntries = parsed;
-      } else {
-        rawCategories = parsed.categories || [];
-        rawEntries = parsed.entries || [];
-      }
-
-      // İçerik çakışmalarını temizle (aynı site, kullanıcı adı ve şifreye sahipse sadece 1 tanesini tut)
-      const seenContent = new Set();
-      const deduplicatedEntries = rawEntries.filter(e => {
-        const key = `${e.site}||${e.username}||${e.password}`;
-        if (seenContent.has(key)) return false;
-        seenContent.add(key);
-        return true;
-      });
-
-      // Mevcut kaydedilmiş verilerdeki ID çakışmalarını temizle
-      const seenIds = new Set();
-      const cleanedEntries = deduplicatedEntries.map(e => {
-        let id = e.id;
-        while (seenIds.has(id) || !id) {
-          id = require('react-native-quick-crypto').randomUUID();
-        }
-        seenIds.add(id);
-        return { ...e, id };
-      });
-
-      return {
-        categories: rawCategories,
-        entries: cleanedEntries
-      };
-    } catch (e) {
-      return { categories: [], entries: [] };
-    }
-  }, [vaultData]);
-
-  const allCategories = useMemo(() => {
-    return [t('cat_all'), ...new Set([...DEFAULT_CATEGORIES, ...parsedVault.categories])];
-  }, [parsedVault.categories, t]);
-
-  const entries = parsedVault.entries;
-
-  const filteredEntries = useMemo(() => {
-    let filtered = entries;
-    if (activeCategory === t('cat_trash')) {
-      filtered = filtered.filter(e => e.isDeleted);
-    } else {
-      filtered = filtered.filter(e => !e.isDeleted);
-      if (activeCategory === t('cat_fav')) {
-        filtered = filtered.filter(e => e.fav);
-      } else if (activeCategory !== t('cat_all')) {
-        filtered = filtered.filter(e => (e.category || t('cat_other')) === activeCategory);
-      }
-    }
-    
-    if (searchQuery.trim().length > 0) {
-      const q = searchQuery.toLowerCase();
-      filtered = filtered.filter(e => 
-        (e.site || '').toLowerCase().includes(q) ||
-        (e.username || '').toLowerCase().includes(q) ||
-        (e.category || '').toLowerCase().includes(q)
-      );
-    }
-    
-    return filtered.sort((a, b) => (a.site || '').localeCompare(b.site || ''));
-  }, [entries, activeCategory, searchQuery]);
 
   const handleCopy = useCallback(async (text, label) => {
     const isPassword = label === t('fieldPassword');
