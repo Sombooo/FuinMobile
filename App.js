@@ -19,6 +19,7 @@ import * as ClipboardExpo from 'expo-clipboard';
 import { Buffer } from '@craftzdog/react-native-buffer';
 import * as ScreenCapture from 'expo-screen-capture';
 import { clearIfExpired } from './src/clipboardManager';
+import useVaultLifecycle from './src/hooks/useVaultLifecycle';
 
 import LockScreen from './src/screens/LockScreen';
 import VaultScreen from './src/screens/VaultScreen';
@@ -140,49 +141,15 @@ function AppInner() {
     }
   }, [hasShareIntent, shareIntent]);
 
-  // AppState & Background lock
-  const appState = useRef(AppState.currentState);
-  const backgroundTime = useRef(null);
-  const [isAppActive, setIsAppActive] = useState(AppState.currentState === 'active');
-
-  useEffect(() => {
-    checkLocalVault();
-
-    const subscription = AppState.addEventListener('change', async nextAppState => {
-      setIsAppActive(nextAppState === 'active');
-      if (appState.current.match(/active/) && nextAppState.match(/inactive|background/)) {
-        backgroundTime.current = Date.now();
-      } else if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
-        if (backgroundTime.current) {
-          const elapsed = Date.now() - backgroundTime.current;
-          try {
-            const timeoutStr = await SecureStore.getItemAsync('fuin-bg-timeout');
-            const timeout = timeoutStr ? parseInt(timeoutStr, 10) : 60000; // default 1 min
-            if (timeout > 0 && elapsed > timeout) {
-              lockApp();
-            }
-          } catch (e) {}
-        }
-        
-        // Also clear clipboard if it's older than 45 seconds when returning to app
-        try {
-          await clearIfExpired();
-        } catch (e) {}
-
-        backgroundTime.current = null;
-      }
-      appState.current = nextAppState;
-    });
-
-    return () => {
-      subscription.remove();
-    };
-  }, []);
-
   const checkLocalVault = async () => {
     const data = await loadVault();
     setHasLocalVault(!!data);
   };
+
+  const { isAppActive } = useVaultLifecycle({
+    onLock: lockApp,
+    onCheckLocalVault: checkLocalVault,
+  });
 
   const [failCount, setFailCount] = useState(0);
   const [lockUntil, setLockUntil] = useState(0);
