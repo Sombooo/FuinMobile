@@ -94,34 +94,82 @@ export async function saveVault(encryptedBase64, isNewVault = false) {
     }
   }
 
-  // ATOMIC WRITE FOR UPDATES
+  // ATOMIC WRITE FOR UPDATES WITH MULTI-TIER RESILIENCE (Android & iOS)
   const uniqueTempPath = VAULT_FILE + '.' + Date.now() + '.tmp';
   const bakPath = VAULT_FILE + '.bak';
 
   try {
     console.log(`${logPrefix} ATOMIC_WRITE_START`);
+    // 1. Write to temporary file first
     await FileSystem.writeAsStringAsync(uniqueTempPath, encryptedBase64, { encoding: FileSystem.EncodingType.UTF8 });
 
+    const tempInfo = await FileSystem.getInfoAsync(uniqueTempPath);
+    if (!tempInfo.exists || tempInfo.size === 0) {
+      throw new Error('TEMP_WRITE_VERIFY_FAILED');
+    }
+
+    // 2. Safeguard existing vault (use copyAsync so VAULT_FILE remains intact)
     const destInfo = await FileSystem.getInfoAsync(VAULT_FILE);
     if (destInfo.exists) {
-      const bakInfo = await FileSystem.getInfoAsync(bakPath);
-      if (bakInfo.exists) {
-        try { await FileSystem.deleteAsync(bakPath, { idempotent: true }); } catch(err) {}
-      }
-      
-      await FileSystem.moveAsync({ from: VAULT_FILE, to: bakPath });
-      
       try {
-        await FileSystem.moveAsync({ from: uniqueTempPath, to: VAULT_FILE });
-      } catch (moveErr) {
-        await FileSystem.moveAsync({ from: bakPath, to: VAULT_FILE }); // rollback
-        throw moveErr;
+        const bakInfo = await FileSystem.getInfoAsync(bakPath);
+        if (bakInfo.exists) {
+          try { await FileSystem.deleteAsync(bakPath, { idempotent: true }); } catch {}
+        }
+        await FileSystem.copyAsync({ from: VAULT_FILE, to: bakPath });
+      } catch (bakErr) {
+        console.warn(`${logPrefix} Non-fatal pre-write backup warning:`, bakErr?.message);
       }
-      
-      try { await FileSystem.deleteAsync(bakPath, { idempotent: true }); } catch(err) {}
-    } else {
-      await FileSystem.moveAsync({ from: uniqueTempPath, to: VAULT_FILE });
     }
+
+    // 3. Resilient replace: try moveAsync -> fallback copyAsync -> fallback direct write
+    let replaceSuccess = false;
+
+    // Strategy A: Native moveAsync (cleanest atomic rename)
+    try {
+      if (destInfo.exists) {
+        try { await FileSystem.deleteAsync(VAULT_FILE, { idempotent: true }); } catch {}
+      }
+      await FileSystem.moveAsync({ from: uniqueTempPath, to: VAULT_FILE });
+      replaceSuccess = true;
+    } catch (moveErr) {
+      console.warn(`${logPrefix} Native moveAsync rejected (${moveErr?.message}), trying copyAsync fallback`);
+    }
+
+    // Strategy B: Stream copyAsync + delete temp
+    if (!replaceSuccess) {
+      try {
+        await FileSystem.copyAsync({ from: uniqueTempPath, to: VAULT_FILE });
+        try { await FileSystem.deleteAsync(uniqueTempPath, { idempotent: true }); } catch {}
+        replaceSuccess = true;
+      } catch (copyErr) {
+        console.warn(`${logPrefix} copyAsync fallback rejected (${copyErr?.message}), trying direct write fallback`);
+      }
+    }
+
+    // Strategy C: Direct writeAsStringAsync
+    if (!replaceSuccess) {
+      await FileSystem.writeAsStringAsync(VAULT_FILE, encryptedBase64, { encoding: FileSystem.EncodingType.UTF8 });
+      try { await FileSystem.deleteAsync(uniqueTempPath, { idempotent: true }); } catch {}
+    }
+
+    // 4. Verification
+    const verifyInfo = await FileSystem.getInfoAsync(VAULT_FILE);
+    if (!verifyInfo.exists || verifyInfo.size === 0) {
+      // Emergency rollback if backup exists
+      try {
+        const bakInfo = await FileSystem.getInfoAsync(bakPath);
+        if (bakInfo.exists) {
+          await FileSystem.copyAsync({ from: bakPath, to: VAULT_FILE });
+        }
+      } catch {}
+      throw new Error('TARGET_VERIFY_FAILED');
+    }
+
+    // 5. Cleanup
+    try { await FileSystem.deleteAsync(uniqueTempPath, { idempotent: true }); } catch {}
+    try { await FileSystem.deleteAsync(bakPath, { idempotent: true }); } catch {}
+
     console.log(`${logPrefix} ATOMIC_WRITE_OK`);
   } catch (e) {
     try { await FileSystem.deleteAsync(uniqueTempPath, { idempotent: true }); } catch (err) {}
@@ -142,7 +190,22 @@ export async function clearVault() {
     await FileSystem.deleteAsync(VAULT_FILE);
   }
   try {
+    await FileSystem.deleteAsync(BACKUP_DIR, { idempotent: true });
+  } catch (e) {}
+  try {
     await AsyncStorage.removeItem(SYNC_STATE_KEY);
+  } catch (e) {}
+  try {
+    await SecureStore.deleteItemAsync(MASTER_SALT_KEY);
+    await SecureStore.deleteItemAsync('fuin-biometric-key');
+    await SecureStore.deleteItemAsync('fuin-biometric-enabled');
+    await SecureStore.deleteItemAsync('fuin_lan_paired_device');
+    await SecureStore.deleteItemAsync('fuin_lan_pair_key');
+    await SecureStore.deleteItemAsync('fuin_lan_port');
+    await SecureStore.deleteItemAsync('fuin_lan_addresses');
+    await SecureStore.deleteItemAsync('fuin_clip_expire');
+    await SecureStore.deleteItemAsync('fuin_clip_hash');
+    await SecureStore.deleteItemAsync('fuin_clip_val');
   } catch (e) {}
 }
 

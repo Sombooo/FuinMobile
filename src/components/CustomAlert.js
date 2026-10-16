@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
-import { View, Modal, TouchableOpacity, Platform, StatusBar } from 'react-native';
+import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
+import { View, Modal, TouchableOpacity, Platform, StatusBar, Animated } from 'react-native';
 import CustomText from './CustomText';
 import { useTheme } from '../theme';
 
@@ -33,6 +33,24 @@ export function useAlert() {
 function AlertModal({ config, onDismiss }) {
   const { theme } = useTheme();
   const { title, message, buttons } = config;
+  const scaleAnim = useRef(new Animated.Value(0.92)).current;
+  const opacityAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(opacityAnim, {
+        toValue: 1,
+        duration: 140,
+        useNativeDriver: true,
+      }),
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        friction: 7,
+        tension: 55,
+        useNativeDriver: true,
+      })
+    ]).start();
+  }, []);
 
   // Determine alert type from title content for styling
   const isError = title?.includes('⚠') || title?.includes('Hata') || title?.includes('Error') || title?.includes('Dikkat') || title?.includes('Warning');
@@ -54,7 +72,7 @@ function AlertModal({ config, onDismiss }) {
         alignItems: 'center',
         padding: 24,
       }}>
-        <View style={{
+        <Animated.View style={{
           width: '100%',
           maxWidth: 340,
           backgroundColor: theme.bg,
@@ -62,6 +80,8 @@ function AlertModal({ config, onDismiss }) {
           borderColor: theme.border,
           borderRadius: 4,
           overflow: 'hidden',
+          opacity: opacityAnim,
+          transform: [{ scale: scaleAnim }],
         }}>
           {/* Accent top bar */}
           <View style={{ height: 3, backgroundColor: accentColor }} />
@@ -87,7 +107,7 @@ function AlertModal({ config, onDismiss }) {
                 fontSize: 13,
                 color: theme.text,
                 lineHeight: 20,
-                textAlign: 'center',
+                textAlign: message?.includes('\n') ? 'left' : 'center',
                 marginBottom: 24,
               }}>
                 {message}
@@ -95,68 +115,75 @@ function AlertModal({ config, onDismiss }) {
             ) : null}
 
             {/* Buttons */}
-            <View style={{
-              flexDirection: buttons.length > 2 ? 'column' : 'row',
-              gap: 10,
-            }}>
-              {buttons.map((btn, i) => {
-                const isDestructive = btn.style === 'destructive';
-                const isCancel = btn.style === 'cancel';
-                const isPrimary = !isCancel && !isDestructive && buttons.length === 1;
-                
-                let bgColor = 'transparent';
-                let textColor = theme.text;
-                let borderColor = theme.border;
+            {(() => {
+              const hasLongText = buttons.some(b => (b.text || '').length > 14);
+              const isColumn = buttons.length > 2 || hasLongText;
+              const hasExplicitPrimary = buttons.some(b => b.style === 'primary');
 
-                if (isDestructive) {
-                  bgColor = theme.red || '#E55050';
-                  textColor = '#fff';
-                  borderColor = bgColor;
-                } else if (isPrimary || (buttons.length === 1)) {
-                  bgColor = accentColor;
-                  textColor = theme.bg;
-                  borderColor = accentColor;
-                } else if (isCancel) {
-                  bgColor = 'transparent';
-                  textColor = theme.muted;
-                  borderColor = theme.border;
-                } else if (!isCancel && buttons.length > 1 && i === buttons.length - 1) {
-                  // Last non-cancel button is primary
-                  bgColor = accentColor;
-                  textColor = theme.bg;
-                  borderColor = accentColor;
-                }
+              return (
+                <View style={{
+                  flexDirection: isColumn ? 'column' : 'row',
+                  gap: 10,
+                }}>
+                  {buttons.map((btn, i) => {
+                    const isDestructive = btn.style === 'destructive';
+                    const isCancel = btn.style === 'cancel';
+                    const isPrimary = btn.style === 'primary' || (!hasExplicitPrimary && !isCancel && !isDestructive && (buttons.length === 1 || i === buttons.length - 1));
+                    
+                    let bgColor = 'transparent';
+                    let textColor = theme.text;
+                    let borderColor = theme.border;
 
-                return (
-                  <TouchableOpacity
-                    key={i}
-                    style={{
-                      flex: buttons.length <= 2 ? 1 : undefined,
-                      height: 44,
-                      backgroundColor: bgColor,
-                      borderWidth: 1,
-                      borderColor: borderColor,
-                      borderRadius: 2,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                    onPress={() => handlePress(btn)}
-                    activeOpacity={0.7}
-                  >
-                    <CustomText style={{
-                      color: textColor,
-                      fontSize: 12,
-                      fontWeight: '600',
-                      letterSpacing: 1,
-                    }}>
-                      {btn.text}
-                    </CustomText>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
+                    if (isDestructive) {
+                      bgColor = theme.red || '#E55050';
+                      textColor = '#fff';
+                      borderColor = bgColor;
+                    } else if (isPrimary) {
+                      bgColor = accentColor;
+                      textColor = theme.bg;
+                      borderColor = accentColor;
+                    } else if (isCancel) {
+                      bgColor = 'transparent';
+                      textColor = theme.muted;
+                      borderColor = theme.border;
+                    }
+
+                    return (
+                      <TouchableOpacity
+                        key={i}
+                        style={{
+                          flex: isColumn ? undefined : 1,
+                          width: isColumn ? '100%' : undefined,
+                          minHeight: 44,
+                          paddingVertical: 10,
+                          paddingHorizontal: 12,
+                          backgroundColor: bgColor,
+                          borderWidth: 1,
+                          borderColor: borderColor,
+                          borderRadius: 4,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                        onPress={() => handlePress(btn)}
+                        activeOpacity={0.7}
+                      >
+                        <CustomText style={{
+                          color: textColor,
+                          fontSize: 12,
+                          fontWeight: '600',
+                          letterSpacing: 0.5,
+                          textAlign: 'center',
+                        }}>
+                          {btn.text}
+                        </CustomText>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              );
+            })()}
           </View>
-        </View>
+        </Animated.View>
       </View>
     </Modal>
   );

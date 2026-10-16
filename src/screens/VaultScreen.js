@@ -1,7 +1,11 @@
 import CustomTextInput from '../components/CustomTextInput';
 import CustomText from '../components/CustomText';
-import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { StyleSheet, Text, View, FlatList, TouchableOpacity, SafeAreaView, StatusBar, Alert, Platform, ScrollView, TextInput, Switch, Modal } from 'react-native';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { StyleSheet, Text, View, FlatList, TouchableOpacity, SafeAreaView, StatusBar, Alert, Platform, ScrollView, TextInput, Switch, Modal, LayoutAnimation, Animated, UIManager } from 'react-native';
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 import { useTheme } from '../theme';
 import Svg, { Polygon, Path, Circle, Rect, Polyline, Line } from 'react-native-svg';
 import * as SecureStore from 'expo-secure-store';
@@ -19,10 +23,105 @@ import { Linking } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useI18n } from '../i18n';
 import { useAlert } from '../components/CustomAlert';
+import { copySecure } from '../clipboardManager';
+import FuinImporters from '../services/importers';
 
-let clipboardSequence = 0;
+const VaultCardItem = React.memo(function VaultCardItem({
+  item,
+  isPwVisible,
+  onTogglePw,
+  onCopy,
+  onOpenEdit,
+  onOpenUrl,
+  theme,
+  styles,
+  t
+}) {
+  return (
+    <TouchableOpacity 
+      activeOpacity={0.7} 
+      delayPressIn={0}
+      onPress={() => onOpenEdit(item)} 
+      style={styles.card}
+    >
+      <View style={styles.cardHeader}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          {item.fav && <Feather name="star" size={13} color={theme.accent} style={{ marginRight: 2 }} />}
+          <CustomText style={styles.cardTitle}>{item.site}</CustomText>
+        </View>
+        <CustomText style={styles.cardCategory}>{item.category || t('cat_other')}</CustomText>
+      </View>
 
-export default function VaultScreen({ vaultData, password, onLogout, onSyncRequest, onUpdateVaultData, sharedEntryData, setSharedEntryData }) {
+      {item.username ? (
+        <View style={styles.row}>
+          <CustomText style={styles.label}>{t('fieldUser')}</CustomText>
+          <TouchableOpacity 
+            activeOpacity={0.6}
+            delayPressIn={0}
+            onPress={() => onCopy(item.username, t('fieldUser'))}
+          >
+            <CustomText style={styles.value}>{item.username}</CustomText>
+          </TouchableOpacity>
+        </View>
+      ) : null}
+
+      <View style={styles.row}>
+        <CustomText style={styles.label}>{t('fieldPassword')}</CustomText>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <TouchableOpacity 
+            onPress={() => onTogglePw(item.id)} 
+            hitSlop={{top: 15, bottom: 15, left: 15, right: 15}} 
+            style={{padding: 5}}
+            activeOpacity={0.6}
+            delayPressIn={0}
+          >
+            <Feather name={isPwVisible ? "eye-off" : "eye"} size={16} color={theme.muted} />
+          </TouchableOpacity>
+          <TouchableOpacity 
+            activeOpacity={0.6}
+            delayPressIn={0}
+            onPress={() => onCopy(item.password, t('fieldPassword'))}
+          >
+            <CustomText style={styles.value}>{isPwVisible ? item.password : '••••••••'}</CustomText>
+          </TouchableOpacity>
+        </View>
+      </View>
+      
+      {item.url ? (
+        <View style={[styles.row, { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: theme.border }]}>
+          <CustomText style={styles.label}>{t('fieldUrl')}</CustomText>
+          <TouchableOpacity 
+            activeOpacity={0.7}
+            delayPressIn={0}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: theme.accent, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 4 }} 
+            onPress={() => onOpenUrl(item.url)}
+          >
+            <Feather name="external-link" size={14} color={theme.bg} />
+            <CustomText style={{ color: theme.bg, fontSize: 12, fontWeight: 'bold' }}>{t('btnOpenInBrowser')}</CustomText>
+          </TouchableOpacity>
+        </View>
+      ) : null}
+    </TouchableOpacity>
+  );
+}, (prev, next) => {
+  return prev.item === next.item &&
+         prev.isPwVisible === next.isPwVisible &&
+         prev.theme === next.theme;
+});
+
+export default function VaultScreen({ 
+  vaultData, 
+  password, 
+  onLogout, 
+  onSyncRequest, 
+  onOpenScanner,
+  onPerformLanSync,
+  onUpdateVaultData, 
+  sharedEntryData, 
+  setSharedEntryData,
+  lanPairingVersion,
+  onPairingUpdated
+}) {
   const { t, lang, setLang } = useI18n();
   const { showAlert } = useAlert();
   
@@ -30,11 +129,24 @@ export default function VaultScreen({ vaultData, password, onLogout, onSyncReque
 
   const insets = useSafeAreaInsets();
   const { theme, themeMode, changeTheme } = useTheme();
-  const styles = getStyles(theme);
+  const isLight = theme.bg === '#f5f0e8';
+  const styles = useMemo(() => getStyles(theme), [theme]);
 
   const [activeTab, setActiveTab] = useState('vault'); 
   const [activeCategory, setActiveCategory] = useState(t('cat_all'));
   const [searchQuery, setSearchQuery] = useState('');
+
+  const switchTabSmooth = (nextTab) => {
+    if (activeTab === nextTab) return;
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setActiveTab(nextTab);
+  };
+
+  const switchCategorySmooth = (nextCat) => {
+    if (activeCategory === nextCat) return;
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setActiveCategory(nextCat);
+  };
   
   // Edit State
   const [modalVisible, setModalVisible] = useState(false);
@@ -46,6 +158,72 @@ export default function VaultScreen({ vaultData, password, onLogout, onSyncReque
   // Show password state
   const [visiblePasswords, setVisiblePasswords] = useState({});
   const [biometricEnabled, setBiometricEnabled] = useState(false);
+
+  // Sync & Pairing State
+  const [syncMode, setSyncMode] = useState('lan');
+  const [pairingInfo, setPairingInfo] = useState(null);
+
+  const loadPairingAndSyncSettings = async () => {
+    try {
+      await SecureStore.setItemAsync('fuin_sync_mode', 'lan').catch(() => {});
+      setSyncMode('lan');
+      const { getPairingInfo } = require('../sync-lan-mobile');
+      const info = await getPairingInfo();
+      setPairingInfo(info);
+    } catch (e) {
+      console.warn('loadPairingAndSyncSettings error:', e);
+    }
+  };
+
+  useEffect(() => {
+    loadPairingAndSyncSettings();
+  }, [activeTab, lanPairingVersion]);
+
+  const handleSetSyncMode = async () => {
+    setSyncMode('lan');
+    try {
+      await SecureStore.setItemAsync('fuin_sync_mode', 'lan');
+    } catch (e) {
+      console.warn('handleSetSyncMode error:', e);
+    }
+  };
+
+  const handleUnpairPress = () => {
+    showAlert(
+      t('alertUnpairTitle'),
+      t('alertUnpairConfirm'),
+      [
+        { text: t('btnCancel'), style: 'cancel' },
+        {
+          text: t('btnUnpairAction'),
+          style: 'destructive',
+          onPress: async () => {
+            const { clearPairingInfo } = require('../sync-lan-mobile');
+            await clearPairingInfo();
+            setPairingInfo(null);
+            if (onPairingUpdated) onPairingUpdated();
+            showAlert(t('alertSuccess'), t('toastDeviceUnpaired'));
+          }
+        }
+      ]
+    );
+  };
+
+  const handlePairDesktopPress = () => {
+    if (onOpenScanner) {
+      onOpenScanner('pair');
+    } else if (onSyncRequest) {
+      onSyncRequest();
+    }
+  };
+
+  const handleLanSyncPress = () => {
+    if (onPerformLanSync) {
+      onPerformLanSync();
+    } else if (onSyncRequest) {
+      onSyncRequest();
+    }
+  };
 
   useEffect(() => {
     SecureStore.getItemAsync('fuin-biometric-enabled').then(val => {
@@ -76,7 +254,6 @@ export default function VaultScreen({ vaultData, password, onLogout, onSyncReque
 
   useEffect(() => {
     return () => {
-      if (clipboardTimer.current) clearTimeout(clipboardTimer.current);
       setSelectedEntry(null);
     };
   }, []);
@@ -186,35 +363,19 @@ export default function VaultScreen({ vaultData, password, onLogout, onSyncReque
     return filtered.sort((a, b) => (a.site || '').localeCompare(b.site || ''));
   }, [entries, activeCategory, searchQuery]);
 
-  const clipboardTimer = useRef(null);
+  const handleCopy = useCallback(async (text, label) => {
+    const isPassword = label === t('fieldPassword');
+    const duration = isPassword ? 45000 : 30000;
+    await copySecure(text, duration);
+    showAlert(t('alertCopied'), isPassword ? t('toastCopiedClipboard45s') : label + t('toastCopiedClipboard30s'));
+  }, [t, showAlert]);
 
-  const handleCopy = async (text, label) => {
-    await ClipboardExpo.setStringAsync(text);
-    showAlert(t('alertCopied'), label === t('fieldPassword') ? t('toastCopiedClipboard45s') : label + t('toastCopiedClipboard30s'));
-    
-    // Save copy time so AppState listener can clear it if app goes to background
-    const SecureStore = require('expo-secure-store');
-    await SecureStore.setItemAsync('fuin-clipboard-time', Date.now().toString());
-
-    clipboardSequence++;
-    const currentSeq = clipboardSequence;
-
-    if (clipboardTimer.current) clearTimeout(clipboardTimer.current);
-    clipboardTimer.current = setTimeout(async () => {
-      if (clipboardSequence === currentSeq) {
-        await ClipboardExpo.setStringAsync('');
-        await SecureStore.deleteItemAsync('fuin-clipboard-time');
-      }
-      clipboardTimer.current = null;
-    }, label === t('fieldPassword') ? 45000 : 30000);
-  };
-
-  const togglePasswordVisibility = (id) => {
+  const togglePasswordVisibility = useCallback((id) => {
     setVisiblePasswords(prev => ({
       ...prev,
       [id]: !prev[id]
     }));
-  };
+  }, []);
 
   const handleSaveEntry = async (updatedEntry) => {
     let newEntries = [...entries];
@@ -278,83 +439,51 @@ export default function VaultScreen({ vaultData, password, onLogout, onSyncReque
     }
   };
 
-  const openAddModal = () => {
+  const openAddModal = useCallback(() => {
     setSelectedEntry(null);
     setModalVisible(true);
-  };
+  }, []);
 
-  const openEditModal = (entry) => {
+  const openEditModal = useCallback((entry) => {
     setSelectedEntry(entry);
     setModalVisible(true);
-  };
+  }, []);
 
-  const renderItem = ({ item }) => {
-    const isPwVisible = visiblePasswords[item.id];
-    
-    return (
-      <TouchableOpacity activeOpacity={0.7} onPress={() => openEditModal(item)} style={styles.card}>
-        <View style={styles.cardHeader}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            {item.fav && <CustomText style={{ fontSize: 12 }}>⭐</CustomText>}
-            <CustomText style={styles.cardTitle}>{item.site}</CustomText>
-          </View>
-          <CustomText style={styles.cardCategory}>{item.category || t('cat_other')}</CustomText>
-        </View>
+  const handleOpenUrl = useCallback(async (rawUrl) => {
+    try {
+      let urlToOpen = (rawUrl || '').trim();
+      if (!/^https?:\/\//i.test(urlToOpen)) {
+        urlToOpen = 'https://' + urlToOpen;
+      }
+      const supported = await Linking.canOpenURL(urlToOpen);
+      if (supported) {
+        await Linking.openURL(urlToOpen);
+      } else {
+        showAlert(t('alertError'), t('toastGenericError') + ' (Geçersiz URL)');
+      }
+    } catch (error) {
+      console.error("URL açılırken hata:", error);
+      showAlert(t('alertError'), t('toastGenericError'));
+    }
+  }, [t, showAlert]);
 
-        {item.username ? (
-          <View style={styles.row}>
-            <CustomText style={styles.label}>{t('fieldUser')}</CustomText>
-            <TouchableOpacity onPress={() => handleCopy(item.username, t('fieldUser'))}>
-              <CustomText style={styles.value}>{item.username}</CustomText>
-            </TouchableOpacity>
-          </View>
-        ) : null}
-
-        <View style={styles.row}>
-          <CustomText style={styles.label}>{t('fieldPassword')}</CustomText>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <TouchableOpacity onPress={() => togglePasswordVisibility(item.id)} hitSlop={{top: 20, bottom: 20, left: 20, right: 20}} style={{padding: 5}}>
-              <Feather name={isPwVisible ? "eye-off" : "eye"} size={16} color={theme.muted} />
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => handleCopy(item.password, t('fieldPassword'))}>
-              <CustomText style={styles.value}>{isPwVisible ? item.password : '••••••••'}</CustomText>
-            </TouchableOpacity>
-          </View>
-        </View>
-        
-        {item.url ? (
-          <View style={[styles.row, { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: theme.border }]}>
-             <CustomText style={styles.label}>Bağlantı</CustomText>
-             <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: theme.accent, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 4 }} onPress={async () => {
-               try {
-                 let urlToOpen = item.url.trim();
-                 if (!/^https?:\/\//i.test(urlToOpen)) {
-                   urlToOpen = 'https://' + urlToOpen;
-                 }
-                 
-                 const supported = await Linking.canOpenURL(urlToOpen);
-                 if (supported) {
-                   await Linking.openURL(urlToOpen);
-                 } else {
-                   showAlert(t('alertError'), t('toastGenericError') + ' (Geçersiz URL)');
-                 }
-               } catch (error) {
-                 console.error("URL açılırken hata:", error);
-                 showAlert(t('alertError'), t('toastGenericError'));
-               }
-             }}>
-               <Feather name="external-link" size={14} color={theme.bg} />
-               <CustomText style={{ color: theme.bg, fontSize: 12, fontWeight: 'bold' }}>Tarayıcıda Aç</CustomText>
-             </TouchableOpacity>
-          </View>
-        ) : null}
-      </TouchableOpacity>
-    );
-  };
+  const renderItem = useCallback(({ item }) => (
+    <VaultCardItem
+      item={item}
+      isPwVisible={Boolean(visiblePasswords[item.id])}
+      onTogglePw={togglePasswordVisibility}
+      onCopy={handleCopy}
+      onOpenEdit={openEditModal}
+      onOpenUrl={handleOpenUrl}
+      theme={theme}
+      styles={styles}
+      t={t}
+    />
+  ), [visiblePasswords, togglePasswordVisibility, handleCopy, openEditModal, handleOpenUrl, theme, styles, t]);
 
   return (
     <SafeAreaView style={[styles.container, { paddingTop: insets.top }]}>
-      <StatusBar barStyle={themeMode === 'light' ? 'dark-content' : 'light-content'} />
+      <StatusBar barStyle={isLight ? 'dark-content' : 'light-content'} />
       
       {/* Header */}
       <View style={styles.header}>
@@ -382,7 +511,7 @@ export default function VaultScreen({ vaultData, password, onLogout, onSyncReque
                   <TouchableOpacity 
                     key={cat} 
                     style={[styles.categoryBtn, activeCategory === cat && styles.categoryBtnActive]}
-                    onPress={() => setActiveCategory(cat)}
+                    onPress={() => switchCategorySmooth(cat)}
                   >
                     <CustomText style={[styles.categoryText, activeCategory === cat && styles.categoryTextActive]}>
                       {cat}
@@ -409,6 +538,10 @@ export default function VaultScreen({ vaultData, password, onLogout, onSyncReque
               keyExtractor={(item) => item.id || Math.random().toString()}
               renderItem={renderItem}
               contentContainerStyle={styles.listContainer}
+              initialNumToRender={12}
+              maxToRenderPerBatch={10}
+              windowSize={7}
+              removeClippedSubviews={Platform.OS === 'android'}
               ListEmptyComponent={
                 <View style={styles.emptyWrap}>
                   <CustomText style={styles.emptyText}>{t('emptyCategoryResults')}</CustomText>
@@ -417,7 +550,12 @@ export default function VaultScreen({ vaultData, password, onLogout, onSyncReque
             />
 
             {/* Floating Action Button */}
-            <TouchableOpacity style={styles.fab} onPress={openAddModal}>
+            <TouchableOpacity 
+              style={styles.fab} 
+              onPress={openAddModal}
+              activeOpacity={0.7}
+              delayPressIn={0}
+            >
               <CustomText style={styles.fabText}>+</CustomText>
             </TouchableOpacity>
           </>
@@ -458,10 +596,11 @@ export default function VaultScreen({ vaultData, password, onLogout, onSyncReque
                   showAlert(t('alertError'), t('ioExportJsonFailed') + ' (Hata)');
                 }
               }}>
-                <CustomText style={{color: theme.text, fontSize: 14, fontWeight: 'bold'}}>{t('ioExportJsonBtn')}</CustomText>
+                <Feather name="download" size={20} color={theme.accent} style={{ marginBottom: 6 }} />
+                <CustomText style={{color: theme.text, fontSize: 13, fontWeight: 'bold'}}>{t('ioExportJsonBtn')}</CustomText>
               </TouchableOpacity>
 
-              <TouchableOpacity style={[styles.settingsCard, { flex: 1, alignItems: 'center' }]} onPress={async () => {
+              <TouchableOpacity style={[styles.settingsCard, { flex: 1, alignItems: 'center', paddingVertical: 14 }]} onPress={async () => {
                 try {
                   const { StorageAccessFramework } = FileSystem;
                   
@@ -493,166 +632,85 @@ export default function VaultScreen({ vaultData, password, onLogout, onSyncReque
                   showAlert(t('alertError'), t('ioExportCsvFailed') + ' (Hata)');
                 }
               }}>
-                <CustomText style={{color: theme.text, fontSize: 14, fontWeight: 'bold'}}>{t('ioExportCsvBtn')}</CustomText>
+                <Feather name="file-text" size={20} color={theme.accent} style={{ marginBottom: 6 }} />
+                <CustomText style={{color: theme.text, fontSize: 13, fontWeight: 'bold'}}>{t('ioExportCsvBtn')}</CustomText>
               </TouchableOpacity>
             </View>
 
             <View style={{flexDirection: 'row', gap: 10, marginBottom: 20}}>
               <TouchableOpacity style={[styles.settingsCard, { flex: 1, alignItems: 'center' }]} onPress={async () => {
+                let importedCacheUri = null;
                 try {
                   const result = await DocumentPicker.getDocumentAsync({ type: 'application/json', copyToCacheDirectory: true });
                   if (result.canceled === false && result.assets && result.assets.length > 0) {
-                    const content = await FileSystem.readAsStringAsync(result.assets[0].uri, { encoding: 'utf8' });
-                    let parsed = JSON.parse(content);
+                    importedCacheUri = result.assets[0].uri;
+                    const content = await FileSystem.readAsStringAsync(importedCacheUri, { encoding: 'utf8' });
+                    try { await FileSystem.deleteAsync(importedCacheUri, { idempotent: true }); importedCacheUri = null; } catch {}
                     
-                    const newEntries = [...entries];
-                    let addedCount = 0;
-                    
-                    if (parsed.items && Array.isArray(parsed.items)) {
-                       parsed.items.forEach(item => {
-                         if (item.type === 1 && item.login) {
-                            const site = item.name || '';
-                            const username = item.login.username || '';
-                            const password = item.login.password || '';
-                            const isDuplicate = newEntries.some(e => e.site === site && e.username === username && e.password === password);
-                            
-                            if (!isDuplicate) {
-                              let newId = item.id;
-                              if (!newId || newEntries.some(e => e.id === newId)) newId = Date.now().toString() + Math.random().toString();
-                              newEntries.push({
-                                 id: newId, site: site, username: username, password: password,
-                                 url: item.login.uris && item.login.uris.length > 0 ? item.login.uris[0].uri : '',
-                                 category: t('cat_other'), note: item.notes || '', totp: item.login.totp || '',
-                                 fav: item.favorite || false, isDeleted: false,
-                                 created: Date.now(), updated: Date.now()
-                              });
-                              addedCount++;
-                            }
-                         }
-                       });
-                    } else {
-                      if (Array.isArray(parsed)) parsed = { type: 'fuin/vault', categories: [], entries: parsed };
-                      else if (!parsed.entries) throw new Error(t('ioInvalidJsonError'));
-                      
-                      parsed.entries.forEach(pe => {
-                        const isDuplicate = newEntries.some(e => e.site === pe.site && e.username === pe.username && e.password === pe.password);
-                        if (!isDuplicate) {
-                          let newId = pe.id;
-                          if (!newId || newEntries.some(e => e.id === newId)) newId = require('react-native-quick-crypto').randomUUID();
-                          newEntries.push({ ...pe, id: newId });
-                          addedCount++;
-                        }
-                      });
-                    }
-                    
-                    const newCategories = Array.from(new Set([...(parsedVault.categories || DEFAULT_CATEGORIES), ...(parsed.categories || [])]));
+                    const res = FuinImporters.importJSON(content, {
+                      existingEntries: entries,
+                      defaultCategory: t('cat_other')
+                    });
+
+                    const newEntries = [...entries, ...res.entries];
+                    const newCategories = Array.from(new Set([...(parsedVault.categories || DEFAULT_CATEGORIES), ...(res.categories || [])]));
                     
                     const success = await onUpdateVaultData(JSON.stringify({ type: 'fuin/vault', categories: newCategories, entries: newEntries }));
-                    if(success) showAlert(t('alertSuccess'), `${addedCount}${t('ioItemsImportedSuccess')}`);
+                    if (success) showAlert(t('alertSuccess'), `${res.entries.length}${t('ioItemsImportedSuccess')}`);
                   }
                 } catch(e) {
-                  showAlert(t('alertError'), t('ioImportFailed') + ' (Hata)');
+                  showAlert(t('alertError'), t('ioImportFailed') + ': ' + e.message);
+                } finally {
+                  if (importedCacheUri) {
+                    try { await FileSystem.deleteAsync(importedCacheUri, { idempotent: true }); } catch {}
+                  }
                 }
               }}>
-                <CustomText style={{color: theme.text, fontSize: 14, fontWeight: 'bold'}}>{t('ioImportJsonBtn')}</CustomText>
+                <Feather name="upload" size={20} color={theme.accent} style={{ marginBottom: 6 }} />
+                <CustomText style={{color: theme.text, fontSize: 13, fontWeight: 'bold'}}>{t('ioImportJsonBtn')}</CustomText>
               </TouchableOpacity>
 
               <TouchableOpacity style={[styles.settingsCard, { flex: 1, alignItems: 'center' }]} onPress={async () => {
+                let importedCsvUri = null;
                 try {
                   const result = await DocumentPicker.getDocumentAsync({ type: 'text/csv', copyToCacheDirectory: true });
                   if (result.canceled === false && result.assets && result.assets.length > 0) {
-                    const content = await FileSystem.readAsStringAsync(result.assets[0].uri, { encoding: 'utf8' });
-                    
-                    let rows = [];
-                    let row = [];
-                    let val = '';
-                    let inQuotes = false;
-                    for (let i = 0; i < content.length; i++) {
-                      let c = content[i];
-                      if (c === '"') {
-                        if (inQuotes && content[i+1] === '"') {
-                          val += '"';
-                          i++;
-                        } else {
-                          inQuotes = !inQuotes;
-                        }
-                      } else if (c === ',' && !inQuotes) {
-                        row.push(val);
-                        val = '';
-                      } else if ((c === '\n' || c === '\r') && !inQuotes) {
-                        if (c === '\r' && content[i+1] === '\n') i++;
-                        row.push(val);
-                        rows.push(row);
-                        row = [];
-                        val = '';
-                      } else {
-                        val += c;
-                      }
+                    importedCsvUri = result.assets[0].uri;
+                    const content = await FileSystem.readAsStringAsync(importedCsvUri, { encoding: 'utf8' });
+                    try { await FileSystem.deleteAsync(importedCsvUri, { idempotent: true }); importedCsvUri = null; } catch {}
+
+                    const res = FuinImporters.importCSV(content, {
+                      existingEntries: entries,
+                      defaultCategory: t('cat_other')
+                    });
+
+                    if (res.entries.length === 0 && res.totalRows === 0) {
+                      throw new Error(t('ioInvalidCsvEmpty'));
                     }
-                    if (val || row.length > 0) {
-                       row.push(val);
-                       rows.push(row);
-                    }
-                    
-                    if (rows.length < 2) throw new Error(t('ioInvalidCsvEmpty'));
-                    
-                    const headers = rows[0].map(h => h.trim().toLowerCase());
-                    const findIdx = (keywords) => headers.findIndex(h => keywords.some(k => h === k || h.includes(k)));
-                    
-                    const siteIdx = findIdx(['name', 'site', 'login_uri', 'url']);
-                    const userIdx = findIdx(['login_username', 'username', 'user', 'login', 'email']);
-                    const passIdx = findIdx(['login_password', 'password', 'pass']);
-                    const noteIdx = findIdx(['notes', 'note']);
-                    const catIdx = findIdx(['folder', 'category', 'group']);
-                    const totpIdx = findIdx(['login_totp', 'totp']);
-                    
-                    if (siteIdx === -1 || passIdx === -1) throw new Error(t('ioInvalidCsvColumns'));
-                    
-                    const newEntries = [...entries];
-                    let addedCount = 0;
-                    
-                    for (let i = 1; i < rows.length; i++) {
-                      const cols = rows[i];
-                      if (cols.length < headers.length && cols.length <= 1 && !cols[0]) continue;
-                      
-                      const site = siteIdx > -1 ? (cols[siteIdx] || '').trim() : '';
-                      const password = passIdx > -1 ? (cols[passIdx] || '').trim() : '';
-                      const username = userIdx > -1 ? (cols[userIdx] || '').trim() : '';
-                      
-                      if (site && password) {
-                        const isDuplicate = newEntries.some(e => e.site === site && e.username === username && e.password === password);
-                        if (!isDuplicate) {
-                          newEntries.push({
-                            id: require('react-native-quick-crypto').randomUUID(),
-                            site: site,
-                            username: username,
-                            password: password,
-                            url: siteIdx > -1 && site.startsWith('http') ? site : '',
-                            category: catIdx > -1 && cols[catIdx] ? cols[catIdx].trim() : t('cat_other'),
-                            note: noteIdx > -1 ? (cols[noteIdx] || '').trim() : '',
-                            totp: totpIdx > -1 ? (cols[totpIdx] || '').trim() : '',
-                            fav: false, isDeleted: false,
-                            created: Date.now(), updated: Date.now()
-                          });
-                          addedCount++;
-                        }
-                      }
-                    }
-                    
+
+                    const newEntries = [...entries, ...res.entries];
                     const success = await onUpdateVaultData(JSON.stringify({ type: 'fuin/vault', categories: parsedVault.categories, entries: newEntries }));
-                    if(success) showAlert(t('alertSuccess'), `${addedCount}${t('ioItemsImportedCsvSuccess')}`);
+                    if (success) showAlert(t('alertSuccess'), `${res.entries.length}${t('ioItemsImportedCsvSuccess')}`);
                   }
                 } catch(e) {
-                  showAlert(t('alertError'), t('ioImportFailed') + ' (Hata)');
+                  showAlert(t('alertError'), t('ioImportFailed') + ': ' + e.message);
+                } finally {
+                  if (importedCsvUri) {
+                    try { await FileSystem.deleteAsync(importedCsvUri, { idempotent: true }); } catch {}
+                  }
                 }
               }}>
-                <CustomText style={{color: theme.text, fontSize: 14, fontWeight: 'bold'}}>{t('ioImportCsvBtn')}</CustomText>
+                <Feather name="folder" size={20} color={theme.accent} style={{ marginBottom: 6 }} />
+                <CustomText style={{color: theme.text, fontSize: 13, fontWeight: 'bold'}}>{t('ioImportCsvBtn')}</CustomText>
               </TouchableOpacity>
             </View>
 
             <CustomText style={[styles.settingsTitle, {fontSize: 14, color: theme.muted, marginTop: 10}]}>{t('secToolsTitle')}</CustomText>
             <TouchableOpacity style={styles.settingsCard} onPress={() => setHealthModalVisible(true)}>
-              <CustomText style={{color: theme.text, fontSize: 14, fontWeight: 'bold'}}>{t('healthReportCardTitle')}</CustomText>
+              <View style={{flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2}}>
+                <Feather name="activity" size={16} color={theme.accent} />
+                <CustomText style={{color: theme.text, fontSize: 14, fontWeight: 'bold'}}>{t('healthReportCardTitle')}</CustomText>
+              </View>
               <CustomText style={{color: theme.muted, fontSize: 12, marginTop: 4}}>{t('healthReportCardSub')}</CustomText>
             </TouchableOpacity>
             
@@ -661,7 +719,10 @@ export default function VaultScreen({ vaultData, password, onLogout, onSyncReque
               setBackups(blist);
               setBackupModalVisible(true);
             }}>
-              <CustomText style={{color: theme.text, fontSize: 14, fontWeight: 'bold'}}>{t('backupsCardTitle')}</CustomText>
+              <View style={{flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2}}>
+                <Feather name="database" size={16} color={theme.accent} />
+                <CustomText style={{color: theme.text, fontSize: 14, fontWeight: 'bold'}}>{t('backupsCardTitle')}</CustomText>
+              </View>
               <CustomText style={{color: theme.muted, fontSize: 12, marginTop: 4}}>{t('backupsCardSub')}</CustomText>
             </TouchableOpacity>
             
@@ -691,6 +752,66 @@ export default function VaultScreen({ vaultData, password, onLogout, onSyncReque
               ))}
             </View>
 
+            {/* Eşitleme & Cihazlar Bölümü */}
+            <CustomText style={[styles.settingsTitle, {fontSize: 14, color: theme.muted, marginTop: 10}]}>{t('settingSyncDevicesTitle')}</CustomText>
+            
+            {/* Eşleşmiş Masaüstü Kartı */}
+            {pairingInfo ? (
+              <View style={[styles.settingsCard, { marginBottom: 20 }]}>
+                <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8}}>
+                  <View style={{flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1}}>
+                    <Feather name="monitor" size={18} color={theme.text} />
+                    <CustomText numberOfLines={1} style={{color: theme.text, fontSize: 13, fontWeight: 'bold', flex: 1}}>
+                      {pairingInfo.deviceId || t('desktopDeviceDefault')}
+                    </CustomText>
+                  </View>
+                  <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: isLight ? 'rgba(61,107,79,0.15)' : 'rgba(90,154,110,0.2)', paddingVertical: 3, paddingHorizontal: 8, borderRadius: 12}}>
+                    <View style={{width: 6, height: 6, borderRadius: 3, backgroundColor: theme.green, marginRight: 5}} />
+                    <CustomText style={{color: theme.green, fontSize: 11, fontWeight: '600'}}>{t('deviceStatusReady')}</CustomText>
+                  </View>
+                </View>
+                
+                <CustomText style={{color: theme.muted, fontSize: 11, marginBottom: 12}}>
+                  {pairingInfo.addresses && pairingInfo.addresses.length > 0 
+                    ? pairingInfo.addresses.map(a => `${a}:${pairingInfo.port || 8765}`).join('  |  ') 
+                    : `127.0.0.1:${pairingInfo.port || 8765}`}
+                </CustomText>
+
+                <View style={{flexDirection: 'row', gap: 10}}>
+                  <TouchableOpacity 
+                    style={{flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: theme.paper, borderWidth: 1, borderColor: theme.border, paddingVertical: 9, borderRadius: 6}}
+                    onPress={handleLanSyncPress}
+                  >
+                    <Feather name="refresh-cw" size={14} color={theme.accent} />
+                    <CustomText style={{color: theme.accent, fontSize: 12, fontWeight: '600'}}>{t('btnSyncNow')}</CustomText>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity 
+                    style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: isLight ? 'rgba(160,52,42,0.08)' : 'rgba(212,90,74,0.12)', borderWidth: 1, borderColor: theme.red, paddingVertical: 9, paddingHorizontal: 12, borderRadius: 6}}
+                    onPress={handleUnpairPress}
+                  >
+                    <Feather name="trash-2" size={14} color={theme.red} />
+                    <CustomText style={{color: theme.red, fontSize: 12, fontWeight: '600'}}>{t('btnUnpairDevice')}</CustomText>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : (
+              <View style={[styles.settingsCard, { marginBottom: 20, alignItems: 'center', paddingVertical: 18 }]}>
+                <Feather name="monitor" size={26} color={theme.muted} style={{marginBottom: 8}} />
+                <CustomText style={{color: theme.text, fontSize: 13, fontWeight: 'bold', marginBottom: 4}}>{t('noDesktopPaired')}</CustomText>
+                <CustomText style={{color: theme.muted, fontSize: 11, textAlign: 'center', marginBottom: 14, paddingHorizontal: 12}}>
+                  {t('pairDesktopHint')}
+                </CustomText>
+                <TouchableOpacity 
+                  style={{flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: theme.accent, paddingVertical: 9, paddingHorizontal: 16, borderRadius: 6}}
+                  onPress={handlePairDesktopPress}
+                >
+                  <Feather name="camera" size={14} color={theme.bg} />
+                  <CustomText style={{color: theme.bg, fontSize: 12, fontWeight: 'bold'}}>{t('btnPairDesktop')}</CustomText>
+                </TouchableOpacity>
+              </View>
+            )}
+
             <CustomText style={[styles.settingsTitle, {fontSize: 14, color: theme.muted, marginTop: 10}]}>{t('bioSectionTitle')}</CustomText>
             <View style={[styles.settingsCard, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }]}>
               <View>
@@ -711,7 +832,7 @@ export default function VaultScreen({ vaultData, password, onLogout, onSyncReque
                 { label: t('time1m'), value: '60000' },
                 { label: t('time2m'), value: '120000' },
                 { label: t('time5m'), value: '300000' },
-                { label: '15 dk', value: '900000' }
+                { label: t('time15m'), value: '900000' }
               ].map(opt => (
                 <TouchableOpacity key={opt.value} style={[styles.settingsCard, { paddingVertical: 10, paddingHorizontal: 15 }]} onPress={async () => {
                   const SecureStore = require('expo-secure-store');
@@ -759,7 +880,7 @@ export default function VaultScreen({ vaultData, password, onLogout, onSyncReque
 
       {/* Bottom Navigation Bar */}
       <View style={[styles.bottomBar, { paddingBottom: insets.bottom || 20 }]}>
-        <TouchableOpacity style={styles.navBtn} onPress={() => setActiveTab('vault')}>
+        <TouchableOpacity style={styles.navBtn} onPress={() => switchTabSmooth('vault')}>
           <Svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={activeTab === 'vault' ? theme.accent : theme.muted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <Path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
             <Polyline points="9 22 9 12 15 12 15 22" />
@@ -767,28 +888,35 @@ export default function VaultScreen({ vaultData, password, onLogout, onSyncReque
           <CustomText style={[styles.navText, activeTab === 'vault' && styles.navTextActive]}>{t('tabVault')}</CustomText>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.navBtn} onPress={() => {
-          showAlert(t('alertPairingTitle'), t('alertPairingBody'), [
-            { text: t('btnCancel'), style: 'cancel' },
-            { text: t('btnContinue'), style: 'destructive', onPress: onSyncRequest }
-          ]);
-        }}>
-          <Svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={theme.muted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <Rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-            <Rect x="7" y="7" width="3" height="3" />
-            <Rect x="14" y="7" width="3" height="3" />
-            <Rect x="7" y="14" width="3" height="3" />
-            <Rect x="14" y="14" width="3" height="3" />
-          </Svg>
-          <CustomText style={styles.navText}>{t('tabQrSync')}</CustomText>
+        <TouchableOpacity 
+          style={styles.navBtn} 
+          onPress={() => {
+            if (!pairingInfo) {
+              showAlert(
+                t('settingSyncDevicesTitle'),
+                t('pairDesktopHint'),
+                [
+                  { text: t('btnCancel'), style: 'cancel' },
+                  { text: t('btnPairDesktop'), onPress: handlePairDesktopPress }
+                ]
+              );
+            } else {
+              handleLanSyncPress();
+            }
+          }}
+        >
+          <Feather name="wifi" size={22} color={theme.muted} />
+          <CustomText style={styles.navText}>
+            {t('tabLanSync') || 'Eşitle'}
+          </CustomText>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.navBtn} onPress={() => setActiveTab('tools')}>
+        <TouchableOpacity style={styles.navBtn} onPress={() => switchTabSmooth('tools')}>
           <Feather name="tool" size={22} color={activeTab === 'tools' ? theme.accent : theme.muted} />
           <CustomText style={[styles.navText, activeTab === 'tools' && styles.navTextActive]}>{t('tabTools')}</CustomText>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.navBtn} onPress={() => setActiveTab('settings')}>
+        <TouchableOpacity style={styles.navBtn} onPress={() => switchTabSmooth('settings')}>
           <Svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={activeTab === 'settings' ? theme.accent : theme.muted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <Circle cx="12" cy="12" r="3" />
             <Path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />

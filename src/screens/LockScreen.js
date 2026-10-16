@@ -11,7 +11,7 @@ import { useI18n } from '../i18n';
 import { useAlert } from '../components/CustomAlert';
 import { Buffer } from '@craftzdog/react-native-buffer';
 
-export default function LockScreen({ password, setPassword, onLogin, onSync, onCreateVault, onVaultErased, hasVault }) {
+export default function LockScreen({ password, setPassword, onLogin, onSync, onCreateVault, onVaultErased, hasVault, syncMode }) {
   const { theme, themeMode } = useTheme();
   const styles = getStyles(theme);
   const toast = useToast();
@@ -193,7 +193,9 @@ export default function LockScreen({ password, setPassword, onLogin, onSync, onC
             )}
 
             <TouchableOpacity style={styles.btnSecondary} onPress={onSync} activeOpacity={0.8}>
-              <CustomText style={styles.btnSecondaryText}>{t('lockAirGapSyncBtn')}</CustomText>
+              <CustomText style={styles.btnSecondaryText}>
+                {t('lockLanSyncBtn') || 'YEREL AĞ İLE EŞİTLE'}
+              </CustomText>
             </TouchableOpacity>
           </View>
 
@@ -204,7 +206,7 @@ export default function LockScreen({ password, setPassword, onLogin, onSync, onC
                 <CustomText style={styles.btnForgotText}>{t('lockForgot')}</CustomText>
               </TouchableOpacity>
               <TouchableOpacity style={styles.btnForgot} onPress={handleErase}>
-                <CustomText style={[styles.btnForgotText, { color: 'var(--red)', textDecorationLine: 'underline', textDecorationColor: 'var(--red)' }]}>{t('lockHardReset')}</CustomText>
+                <CustomText style={[styles.btnForgotText, { color: theme.red, textDecorationLine: 'underline', textDecorationColor: theme.red }]}>{t('lockHardReset')}</CustomText>
               </TouchableOpacity>
             </View>
           )}

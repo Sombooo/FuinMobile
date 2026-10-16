@@ -7,6 +7,8 @@ import { Feather } from '@expo/vector-icons';
 import Slider from '@react-native-community/slider';
 import { useI18n } from '../i18n';
 import { useAlert } from '../components/CustomAlert';
+import { copySecure } from '../clipboardManager';
+import { generatePassword } from '../services/passwordGenerator';
 
 export default function GeneratorModal({ visible, onClose, onApply }) {
   const { theme } = useTheme();
@@ -20,53 +22,30 @@ export default function GeneratorModal({ visible, onClose, onApply }) {
   const [useSymbols, setUseSymbols] = useState(true);
   const [excludeSimilar, setExcludeSimilar] = useState(true);
 
-  const clipboardTimer = useRef(null);
-
   const [generatedPassword, setGeneratedPassword] = useState('');
   const [strength, setStrength] = useState('weak');
   const spinValue = useRef(new Animated.Value(0)).current;
 
   const generate = () => {
-    let charset = '';
-    const upper = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-    const lower = 'abcdefghijklmnopqrstuvwxyz';
-    const numbers = '0123456789';
-    const symbols = '!@#$%^&*()_+~`|}{[]:;?><,./-=';
-    const similar = 'il1Lo0O';
+    const res = generatePassword({
+      length: length,
+      includeUpper: useUpper,
+      includeLower: useLower,
+      includeDigits: useNumbers,
+      includeSymbols: useSymbols,
+      excludeSimilar: excludeSimilar
+    });
 
-    if (useUpper) charset += upper;
-    if (useLower) charset += lower;
-    if (useNumbers) charset += numbers;
-    if (useSymbols) charset += symbols;
-
-    if (excludeSimilar) {
-      charset = charset.split('').filter(c => !similar.includes(c)).join('');
-    }
-
-    if (!charset) {
+    if (!res.password) {
       setGeneratedPassword('');
       setStrength('weak');
       return;
     }
 
-    const crypto = require('react-native-quick-crypto');
-    let pwd = '';
-    const randomBytes = crypto.randomBytes(length);
-    for (let i = 0; i < length; i++) {
-      pwd += charset.charAt(randomBytes[i] % charset.length);
-    }
-    setGeneratedPassword(pwd);
+    setGeneratedPassword(res.password);
 
-    // Calculate strength
-    let score = 0;
-    if (pwd.length >= 12) score += 1;
-    if (pwd.length >= 16) score += 1;
-    if (useUpper) score += 1;
-    if (useNumbers) score += 1;
-    if (useSymbols) score += 1;
-
-    if (score >= 4) setStrength('strong');
-    else if (score >= 2) setStrength('medium');
+    if (res.score >= 3) setStrength('strong');
+    else if (res.score >= 2) setStrength('medium');
     else setStrength('weak');
 
     // Spin animation
@@ -84,18 +63,8 @@ export default function GeneratorModal({ visible, onClose, onApply }) {
 
   const copyToClipboard = async () => {
     if (generatedPassword) {
-      await Clipboard.setStringAsync(generatedPassword);
+      await copySecure(generatedPassword, 45000);
       showAlert(t('alertCopied'), t('toastCopiedClipboard45s'));
-      
-      // Save copy time so AppState listener can clear it if app goes to background
-      const SecureStore = require('expo-secure-store');
-      await SecureStore.setItemAsync('fuin-clipboard-time', Date.now().toString());
-
-      if (clipboardTimer.current) clearTimeout(clipboardTimer.current);
-      clipboardTimer.current = setTimeout(async () => {
-        await Clipboard.setStringAsync('');
-        clipboardTimer.current = null;
-      }, 45000);
     }
   };
 

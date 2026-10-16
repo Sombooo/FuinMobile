@@ -1,7 +1,11 @@
 import CustomTextInput from './src/components/CustomTextInput';
 import CustomText from './src/components/CustomText';
 import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, Alert, AppState, TextInput } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, Alert, AppState, TextInput, Animated, LayoutAnimation, Platform, UIManager } from 'react-native';
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { encryptLocalVault, decryptLocalVault } from './src/crypto';
@@ -14,6 +18,7 @@ import * as LocalAuthentication from 'expo-local-authentication';
 import * as ClipboardExpo from 'expo-clipboard';
 import { Buffer } from '@craftzdog/react-native-buffer';
 import * as ScreenCapture from 'expo-screen-capture';
+import { clearIfExpired } from './src/clipboardManager';
 
 import LockScreen from './src/screens/LockScreen';
 import VaultScreen from './src/screens/VaultScreen';
@@ -22,6 +27,7 @@ import { ToastProvider, useToast } from './src/components/Toast';
 import { LanguageProvider, useI18n } from './src/i18n';
 import { AlertProvider, useAlert } from './src/components/CustomAlert';
 import { useShareIntent } from 'expo-share-intent';
+import { Feather } from '@expo/vector-icons';
 // Removed defaultProps hack
 
 function AppInner() {
@@ -36,6 +42,22 @@ function AppInner() {
   const styles = getStyles(theme);
   const [password, setPassword] = useState('');
   const [mode, setMode] = useState('lock');
+  const modeAnim = useRef(new Animated.Value(1)).current;
+
+  const changeModeSmooth = (nextMode) => {
+    Animated.timing(modeAnim, {
+      toValue: 0,
+      duration: 90,
+      useNativeDriver: true,
+    }).start(() => {
+      setMode(nextMode);
+      Animated.timing(modeAnim, {
+        toValue: 1,
+        duration: 160,
+        useNativeDriver: true,
+      }).start();
+    });
+  };
   const lockApp = () => {
     setPassword('');
     setVaultData(null);
@@ -52,7 +74,7 @@ function AppInner() {
     setImportConfirmPassword('');
     setSyncFailCount(0);
     setSyncLockUntil(0);
-    setMode('lock');
+    changeModeSmooth('lock');
   };
 
   const [permission, requestPermission] = useCameraPermissions();
@@ -71,6 +93,10 @@ function AppInner() {
   const [syncPasswordPrompt, setSyncPasswordPrompt] = useState(false);
   const [syncFailCount, setSyncFailCount] = useState(0);
   const [syncLockUntil, setSyncLockUntil] = useState(0);
+  const isBarcodeLocked = useRef(false);
+  const [lanPairingVersion, setLanPairingVersion] = useState(0);
+  const [syncIntent, setSyncIntent] = useState('sync'); // 'sync' | 'pair'
+  const [hasPairedDevice, setHasPairedDevice] = useState(false);
   const [chunkAssembler, setChunkAssembler] = useState(null);
   const [syncSourceMode, setSyncSourceMode] = useState('lock');
   const [pendingV2Transfer, setPendingV2Transfer] = useState(null);
@@ -92,12 +118,20 @@ function AppInner() {
 
   useEffect(() => {
     if (hasShareIntent && shareIntent.value) {
-      const text = shareIntent.value;
+      const text = String(shareIntent.value || '');
       const isUrl = text.startsWith('http://') || text.startsWith('https://');
       const title = shareIntent.meta?.title || '';
+      let parsedHost = 'Yeni Kayıt';
+      if (isUrl) {
+        try {
+          parsedHost = new URL(text).hostname.replace('www.', '') || 'Yeni Kayıt';
+        } catch {
+          parsedHost = 'Yeni Kayıt';
+        }
+      }
       
       setSharedEntryData({
-        site: title || (isUrl ? new URL(text).hostname.replace('www.', '') : 'Yeni Kayıt'),
+        site: title || parsedHost,
         url: isUrl ? text : '',
         notes: isUrl ? '' : text,
         category: 'Diğer'
@@ -132,14 +166,7 @@ function AppInner() {
         
         // Also clear clipboard if it's older than 45 seconds when returning to app
         try {
-          const copyTimeStr = await SecureStore.getItemAsync('fuin-clipboard-time');
-          if (copyTimeStr) {
-            const copyTime = parseInt(copyTimeStr, 10);
-            if (Date.now() - copyTime > 45000) {
-              await ClipboardExpo.setStringAsync('');
-              await SecureStore.deleteItemAsync('fuin-clipboard-time');
-            }
-          }
+          await clearIfExpired();
         } catch (e) {}
 
         backgroundTime.current = null;
@@ -193,7 +220,7 @@ function AppInner() {
       
       setPassword(pw);
       setVaultData(decryptedJson);
-      setMode('vault');
+      changeModeSmooth('vault');
       setIsLoggingIn(false);
     } catch (e) {
       if (e.message && (e.message.includes('boyut') || e.message.includes('tipi'))) {
@@ -271,15 +298,48 @@ function AppInner() {
     }
   }, [mode, hasLocalVault]);
 
+  const [syncMode, setSyncMode] = useState('lan');
+
+  useEffect(() => {
+    SecureStore.setItemAsync('fuin_sync_mode', 'lan').catch(() => {});
+    setSyncMode('lan');
+  }, [mode]);
+
+  useEffect(() => {
+    const checkPaired = async () => {
+      try {
+        const { getPairingInfo } = require('./src/sync-lan-mobile');
+        const info = await getPairingInfo();
+        setHasPairedDevice(!!info);
+      } catch {
+        setHasPairedDevice(false);
+      }
+    };
+    checkPaired();
+  }, [lanPairingVersion, mode]);
+
   const handlePerformLanSync = async () => {
+
+    try {
+      const { getPairingInfo } = require('./src/sync-lan-mobile');
+      const existingPairing = await getPairingInfo();
+      if (!existingPairing) {
+        showAlert(
+          t('alertWarning') || 'Dikkat',
+          t('noPairedDeviceWarn') || 'Henüz eşleşmiş bir cihaz bulunmuyor. Lütfen önce Ayarlar sekmesinden cihazınızı eşleştirin.'
+        );
+        return;
+      }
+    } catch {}
+
     if (hasLocalVault && !vaultData) {
-      showAlert(t('alertError') || 'Kasa Kilitli', 'Senkronizasyon yapabilmek için lütfen önce kasanızın kilidini açın.');
+      showAlert(t('alertError') || 'Kasa Kilitli', t('syncVaultLockedMsg') || 'Senkronizasyon yapabilmek için lütfen önce kasanızın kilidini açın.');
       return;
     }
 
     try {
       setIsDecrypting(true);
-      toast.showToast('Wi-Fi üzerinden eşitleniyor...');
+      toast.showToast(t('syncLanInProgress') || 'Wi-Fi üzerinden eşitleniyor...');
       const { performLanSync } = require('./src/sync-lan-mobile');
 
       let parsedVault = null;
@@ -299,7 +359,7 @@ function AppInner() {
           };
           const updatedVaultJson = JSON.stringify(updatedVault);
           await handleUpdateVaultData(updatedVaultJson);
-          showAlert('Eşitleme Başarılı', `Yerel ağ senkronizasyonu tamamlandı. (${result.entries.length} kayıt senkronize edildi)`);
+          showAlert(t('syncLanSuccessTitle'), `${t('syncLanCompleted')} (${result.entries.length} ${t('syncEntriesCount')})`);
           setMode('vault');
         } else {
           setPendingPayload({
@@ -312,24 +372,80 @@ function AppInner() {
         }
       }
     } catch (err) {
-      showAlert('Eşitleme Hatası', err.message || 'Masaüstü cihazına bağlanılamadı. Lütfen masaüstünde "Eşitle" butonuna basıldığından emin olun.');
+      setLanPairingVersion(v => v + 1);
+
+      const isRevoked = err.message && (
+        err.message.includes('kaldırılmış') || 
+        err.message.includes('401') || 
+        err.message.includes('Yetkisiz')
+      );
+
+      if (isRevoked) {
+        showAlert(
+          t('syncErrorTitle'),
+          t('syncRevokedBody') || 'Masaüstü cihazında bu eşleşme kaldırılmış olduğu için telefonunuzdaki bağlantı da sıfırlandı. Lütfen Ayarlar sekmesinden tekrar eşleştirin.',
+          [{
+            text: t('btnOk') || 'Tamam',
+            onPress: () => {
+              if (syncSourceMode === 'vault' && vaultData) changeModeSmooth('vault');
+            }
+          }]
+        );
+      } else {
+        showAlert(
+          t('syncErrorTitle'),
+          t('syncUnreachableDetailed') || 'Masaüstü cihazına bağlanılamadı.\n\nLütfen kontrol edin:\n• Bilgisayarınızda Fuin açık ve ana ekrandaki "Eşitle" butonuna basılmış olmalı.\n• Telefon ve bilgisayarınız aynı Wi-Fi / yerel ağa bağlı olmalı.\n• Veya cihaz eşleşmesi bilgisayardan kaldırılmış olabilir.',
+          [
+            {
+              text: t('btnUnpairDevice') || 'Eşleşmeyi Kaldır',
+              style: 'destructive',
+              onPress: async () => {
+                const { clearPairingInfo } = require('./src/sync-lan-mobile');
+                await clearPairingInfo();
+                setLanPairingVersion(v => v + 1);
+                showAlert(t('alertSuccess'), t('toastDeviceUnpaired'));
+                if (syncSourceMode === 'vault' && vaultData) changeModeSmooth('vault');
+              }
+            },
+            {
+              text: t('btnOk') || 'Tamam',
+              style: 'cancel',
+              onPress: () => {
+                if (syncSourceMode === 'vault' && vaultData) changeModeSmooth('vault');
+              }
+            }
+          ]
+        );
+      }
     } finally {
       setIsDecrypting(false);
+      isBarcodeLocked.current = false;
     }
   };
 
-  const startCameraSync = () => {
+  const handleCancelScanner = () => {
+    isBarcodeLocked.current = false;
+    setChunkAssembler(null);
+    setChunks({});
+    setTotalChunks(0);
+    setIsDecrypting(false);
+    setSyncIntent('sync');
+    if (syncSourceMode === 'vault' && vaultData) {
+      changeModeSmooth('vault');
+    } else {
+      lockApp();
+    }
+  };
+
+  const startCameraSync = (intent = 'pair') => {
+    isBarcodeLocked.current = false;
     setSyncSourceMode(mode);
+    setSyncIntent('pair');
     setSyncPassword('');
     setSyncPasswordPrompt(false);
     setPendingV2Transfer(null);
     setPendingPayload(null);
     setMasterPasswordPrompt(false);
-    setImportMasterPassword('');
-    setImportConfirmPassword('');
-    setChunkAssembler(new ChunkAssembler());
-    setChunks({});
-    setTotalChunks(0);
     setIsDecrypting(false);
     setMode('sync');
   };
@@ -339,30 +455,37 @@ function AppInner() {
       const { getPairingInfo } = require('./src/sync-lan-mobile');
       const pairing = await getPairingInfo();
       if (pairing) {
-        showAlert('Senkronizasyon Yöntemi', 'Eşitleme yöntemini seçin:', [
-          { text: 'Wi-Fi ile Eşitle (Önerilen)', onPress: () => handlePerformLanSync() },
-          { text: 'Air-Gap QR Tara', onPress: () => startCameraSync() },
-          { text: t('btnCancel'), style: 'cancel' }
-        ]);
+        handlePerformLanSync();
+        return;
+      } else {
+        showAlert(
+          t('settingSyncDevicesTitle'),
+          t('pairDesktopHint'),
+          [
+            { text: t('btnCancel'), style: 'cancel' },
+            { text: t('btnPairDesktop'), style: 'primary', onPress: () => startCameraSync('pair') }
+          ]
+        );
         return;
       }
     } catch {}
-    startCameraSync();
+    startCameraSync('pair');
   };
 
   const handleBarcodeScanned = async ({ data }) => {
-    if (isDecrypting || syncPasswordPrompt || masterPasswordPrompt) return;
+    if (isDecrypting || syncPasswordPrompt || masterPasswordPrompt || isBarcodeLocked.current) return;
     
+    const cleanData = typeof data === 'string' ? data.trim() : '';
     let pairing = null;
-    if (data && data.startsWith('{') && (data.includes('fuin-lan') || data.includes('pairKey'))) {
+    if (cleanData && cleanData.startsWith('{') && (cleanData.includes('fuin-lan') || cleanData.includes('pairKey'))) {
       try {
-        pairing = JSON.parse(data);
+        pairing = JSON.parse(cleanData);
       } catch (err) {
         console.warn('Pairing parse error:', err);
       }
-    } else if (data && data.startsWith('fuin://pair')) {
+    } else if (cleanData && cleanData.startsWith('fuin://pair')) {
       try {
-        const url = new URL(data);
+        const url = new URL(cleanData);
         pairing = {
           protocol: 'fuin-lan-v1',
           deviceId: url.searchParams.get('id') || url.searchParams.get('deviceId'),
@@ -376,25 +499,51 @@ function AppInner() {
     }
 
     if (pairing && pairing.pairKey && pairing.deviceId) {
+      isBarcodeLocked.current = true;
       try {
         const { savePairingInfo, sendPairRequest } = require('./src/sync-lan-mobile');
         await savePairingInfo(pairing);
+        setLanPairingVersion(v => v + 1);
         if (typeof sendPairRequest === 'function') {
           sendPairRequest(pairing).catch(() => {});
         }
+
+        // If user has an active unlocked vault, immediately perform two-way sync
+        if (vaultData) {
+          isBarcodeLocked.current = false;
+          setSyncIntent('sync');
+          toast.showToast(t('syncLanInProgress') || 'Cihaz eşleşti, veriler eşitleniyor...');
+          handlePerformLanSync();
+          return;
+        }
+
         showAlert(
-          'Eşleşme Başarılı',
-          `Masaüstü cihazı (${pairing.deviceId}) başarıyla eşlendi! Artık Wi-Fi üzerinden tek tıkla eşitleyebilirsiniz.`,
+          t('pairingSuccessTitle'),
+          t('pairingSuccessBody').replace('{deviceId}', pairing.deviceId),
           [
             {
-              text: 'Şimdi Wi-Fi ile Eşitle',
-              onPress: () => handlePerformLanSync()
+              text: t('btnSyncWifiNow'),
+              style: 'primary',
+              onPress: () => {
+                isBarcodeLocked.current = false;
+                setSyncIntent('sync');
+                handlePerformLanSync();
+              }
             },
-            { text: 'Tamam', onPress: () => setMode(vaultData ? 'vault' : 'lock') }
+            { 
+              text: t('btnDone'), 
+              style: 'cancel',
+              onPress: () => {
+                isBarcodeLocked.current = false;
+                setSyncIntent('sync');
+                setMode(vaultData ? 'vault' : 'lock');
+              } 
+            }
           ]
         );
         return;
       } catch (err) {
+        isBarcodeLocked.current = false;
         console.warn('Pairing save error:', err);
       }
     }
@@ -423,7 +572,26 @@ function AppInner() {
 
     if (res.complete && !isDecrypting) {
       setPendingV2Transfer({ envelope: res.envelope, sessionIdHex: res.sessionIdHex });
-      setSyncPasswordPrompt(true);
+      
+      // Auto-decrypt using paired device's pairKey if paired
+      (async () => {
+        try {
+          const { getPairingInfo } = require('./src/sync-lan-mobile');
+          const pairing = await getPairingInfo();
+          if (pairing && pairing.pairKey) {
+            setIsDecrypting(true);
+            try {
+              const ok = await processV2Transfer(res.envelope, res.sessionIdHex, pairing.pairKey, true);
+              if (ok) return;
+            } catch (err) {
+              // Pair key did not decrypt this QR, fall back to manual password prompt
+            } finally {
+              setIsDecrypting(false);
+            }
+          }
+        } catch {}
+        setSyncPasswordPrompt(true);
+      })();
     }
   };
 
@@ -448,7 +616,7 @@ function AppInner() {
     await processV2Transfer(pendingV2Transfer.envelope, pendingV2Transfer.sessionIdHex, syncPassword);
   };
 
-  const processV2Transfer = async (envelope, sessionIdHex, syncPw) => {
+  const processV2Transfer = async (envelope, sessionIdHex, syncPw, isSilent = false) => {
     try {
       const cleanPw = syncPw ? syncPw.trim() : '';
       const syncState = await getSyncState();
@@ -473,30 +641,16 @@ function AppInner() {
       };
 
       if (syncState.hasLocalEdits) {
-        Alert.alert(
-          t('alertWarning'),
-          'Bu cihazda yapılan değişiklikler, yeni Desktop snapshot\'ı kabul edilirse üzerine yazılacaktır. Devam edilsin mi?',
-          [
-            { 
-              text: t('btnCancel'), 
-              style: 'cancel', 
-              onPress: () => { 
-                setIsDecrypting(false); 
-                setPendingV2Transfer(null);
-                setPendingPayload(null);
-                setChunkAssembler(null); 
-                setChunks({}); 
-                lockApp();
-              } 
-            },
-            { text: t('btnOk'), onPress: proceedToSaveOrMasterPassword }
-          ]
-        );
+        // Two-way deterministic merge ensures zero data loss; proceed non-destructively
+        proceedToSaveOrMasterPassword();
       } else {
         proceedToSaveOrMasterPassword();
       }
-
+      return true;
     } catch (e) {
+      if (isSilent) {
+        throw e;
+      }
       const isAuthFailure = e.message && (
         e.message.includes('Yanlış Sync Password') || 
         e.message.includes('bozulmuş/tahrif')
@@ -551,10 +705,33 @@ function AppInner() {
 
   const finalizeV2Import = async (payload, targetMasterPassword) => {
     try {
+      let existingEntries = [];
+      let existingCategories = [];
+      if (vaultData) {
+        try {
+          const parsed = typeof vaultData === 'string' ? JSON.parse(vaultData) : vaultData;
+          if (Array.isArray(parsed?.entries)) existingEntries = parsed.entries;
+          if (Array.isArray(parsed?.categories)) existingCategories = parsed.categories;
+        } catch {}
+      } else {
+        const existingVaultEnc = await loadVault();
+        if (existingVaultEnc && targetMasterPassword) {
+          try {
+            const dec = await decryptLocalVault(existingVaultEnc, targetMasterPassword);
+            const parsed = typeof dec === 'string' ? JSON.parse(dec) : dec;
+            if (Array.isArray(parsed?.entries)) existingEntries = parsed.entries;
+            if (Array.isArray(parsed?.categories)) existingCategories = parsed.categories;
+          } catch {}
+        }
+      }
+
+      const { mergeVaultEntries } = require('./src/sync-merge');
+      const { mergedEntries } = mergeVaultEntries(existingEntries, payload.entries || []);
+
       const finalVault = {
         type: 'fuin/vault',
-        categories: [],
-        entries: payload.entries
+        categories: existingCategories.length > 0 ? existingCategories : (payload.categories || []),
+        entries: mergedEntries
       };
       const finalVaultJson = JSON.stringify(finalVault);
 
@@ -741,6 +918,7 @@ function AppInner() {
         onCreateVault={handleCreateVault}
         onVaultErased={handleVaultErased}
         hasVault={hasLocalVault} 
+        syncMode={syncMode}
       />
     );
   } else if (mode === 'vault') {
@@ -753,8 +931,12 @@ function AppInner() {
           lockApp();
         }}
         onSyncRequest={handleSyncButton}
+        onOpenScanner={startCameraSync}
+        onPerformLanSync={handlePerformLanSync}
         sharedEntryData={sharedEntryData}
         setSharedEntryData={setSharedEntryData}
+        lanPairingVersion={lanPairingVersion}
+        onPairingUpdated={() => setLanPairingVersion(v => v + 1)}
       />
     );
   } else if (mode === 'success') {
@@ -817,7 +999,7 @@ function AppInner() {
           </TouchableOpacity>
           <TouchableOpacity
             style={{ marginTop: 20, alignItems: 'center' }}
-            onPress={() => lockApp()}
+            onPress={handleCancelScanner}
           >
             <CustomText style={{ color: theme.muted }}>{t('btnCancel')}</CustomText>
           </TouchableOpacity>
@@ -856,7 +1038,7 @@ function AppInner() {
           </TouchableOpacity>
           <TouchableOpacity
             style={{ marginTop: 20, alignItems: 'center' }}
-            onPress={() => lockApp()}
+            onPress={handleCancelScanner}
           >
             <CustomText style={{ color: theme.muted }}>{t('btnCancel')}</CustomText>
           </TouchableOpacity>
@@ -882,22 +1064,17 @@ function AppInner() {
           </View>
         )}
         <View style={[styles.overlay, { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, justifyContent: 'flex-end', pointerEvents: 'box-none' }]}>
-          <CustomText style={styles.syncTitle}>{t('syncTitle')}</CustomText>
-          <View style={styles.progressBox}>
-            <CustomText style={styles.progressText}>
-              {isDecrypting ? t('syncEncrypting') : `${t('syncChunksCollected')}${Object.keys(chunks).length} / ${totalChunks || '?'}`}
+          <CustomText style={styles.syncTitle}>
+            {t('pairingScannerTitle') || 'CİHAZ EŞLEŞTİRME'}
+          </CustomText>
+          <View style={{ alignItems: 'center', marginBottom: 16 }}>
+            <CustomText style={{ color: theme.muted, fontSize: 13, textAlign: 'center', paddingHorizontal: 20 }}>
+              {t('pairingScannerSub') || 'Bilgisayarınızdaki eşleştirme QR kodunu okutun'}
             </CustomText>
-            <CustomText style={styles.progressPercent}>{progress}%</CustomText>
           </View>
           <View style={{ flexDirection: 'row', gap: 10, marginHorizontal: 20, marginBottom: 20 }}>
-            <TouchableOpacity 
-              style={[styles.cancelBtn, { flex: 1, backgroundColor: theme.accent, borderColor: theme.accent }]} 
-              onPress={() => handlePerformLanSync()}
-            >
-              <CustomText style={[styles.cancelText, { color: theme.bg, fontWeight: 'bold' }]}>📶 Wi-Fi Eşitle</CustomText>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.cancelBtn, { flex: 1 }]} onPress={() => lockApp()}>
-              <CustomText style={styles.cancelText}>{t('btnCancel')}</CustomText>
+            <TouchableOpacity style={[styles.cancelBtn, { flex: 1, alignItems: 'center', justifyContent: 'center' }]} onPress={handleCancelScanner}>
+              <CustomText style={[styles.cancelText, { textAlign: 'center' }]}>{t('btnCancel')}</CustomText>
             </TouchableOpacity>
           </View>
         </View>
@@ -908,8 +1085,19 @@ function AppInner() {
 
   return (
     <SafeAreaProvider style={{ flex: 1, backgroundColor: theme.bg }}>
-      <View style={{ flex: 1 }}>
+      <Animated.View style={{ 
+        flex: 1, 
+        opacity: modeAnim,
+        transform: [{
+          scale: modeAnim.interpolate({
+            inputRange: [0, 1],
+            outputRange: [0.985, 1],
+          })
+        }]
+      }}>
         {content}
+      </Animated.View>
+      <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
         
         {/* Master Key Modal */}
         {masterKeyData && (
@@ -1006,11 +1194,14 @@ const getStyles = (theme) => StyleSheet.create({
   cancelBtn: {
     backgroundColor: 'rgba(0,0,0,0.6)',
     paddingVertical: 12,
-    paddingHorizontal: 30,
+    paddingHorizontal: 20,
     borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   cancelText: {
     color: '#fff',
     fontWeight: '600',
+    textAlign: 'center',
   }
 });

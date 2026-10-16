@@ -1,6 +1,6 @@
 import CustomTextInput from '../components/CustomTextInput';
 import CustomText from '../components/CustomText';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { StyleSheet, Text, View, TextInput, TouchableOpacity, Modal, ScrollView, Switch, KeyboardAvoidingView, Platform, SafeAreaView, StatusBar, Alert } from 'react-native';
 import { useTheme } from '../theme';
 import GeneratorModal from './GeneratorModal';
@@ -10,7 +10,7 @@ import { useAlert } from '../components/CustomAlert';
 
 export default function EditModal({ visible, entry, allCategories, onClose, onSave, onDelete, onRestore }) {
   const { theme } = useTheme();
-  const styles = getStyles(theme);
+  const styles = useMemo(() => getStyles(theme), [theme]);
   const { t } = useI18n();
   const { showAlert } = useAlert();
   const [site, setSite] = useState('');
@@ -115,7 +115,7 @@ export default function EditModal({ visible, entry, allCategories, onClose, onSa
             <View style={styles.rowBetween}>
               <CustomText style={styles.label}>{t('fieldPasswordLabel')}</CustomText>
               <TouchableOpacity onPress={() => setGenVisible(true)} style={styles.genBtn}>
-                <Feather name="zap" size={14} color={theme.accent} />
+                <Feather name="key" size={14} color={theme.accent} />
                 <CustomText style={styles.genText}>{t('genPwTitle')}</CustomText>
               </TouchableOpacity>
             </View>
