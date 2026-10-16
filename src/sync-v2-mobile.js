@@ -7,6 +7,18 @@ import Argon2 from 'react-native-argon2';
 import * as base45 from 'base45';
 import crc32 from 'crc-32';
 import cbor from 'cbor';
+if (cbor && cbor.Encoder && cbor.Encoder.prototype && !cbor.Encoder.prototype._node26Patched) {
+  cbor.Encoder.prototype._encodeAll = function(objs) {
+    const bufs = [];
+    this.on('data', b => bufs.push(b));
+    for (const o of objs) {
+      this.pushAny(o);
+    }
+    this.end();
+    return Buffer.concat(bufs);
+  };
+  cbor.Encoder.prototype._node26Patched = true;
+}
 import { decompress } from 'fzstd';
 import { XChaCha20Poly1305 } from '@stablelib/xchacha20poly1305';
 
