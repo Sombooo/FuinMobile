@@ -48,7 +48,15 @@
       ],
       "expo-sharing",
       "expo-font",
-      "expo-share-intent"
+      "expo-share-intent",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ]
     ],
     "extra": {
       "eas": {

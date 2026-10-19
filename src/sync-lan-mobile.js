@@ -272,6 +272,9 @@ export async function sendPairRequest(pairing) {
       });
       if (timer) clearTimeout(timer);
       if (res.ok) {
+        if (ip && Array.isArray(pairing.addresses) && pairing.addresses[0] !== ip) {
+          pairing.addresses = [ip, ...pairing.addresses.filter(a => a !== ip)];
+        }
         return await res.json();
       }
     } catch {

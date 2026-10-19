@@ -469,11 +469,30 @@ function AppInner() {
       isBarcodeLocked.current = true;
       try {
         const { savePairingInfo, sendPairRequest } = require('./src/sync-lan-mobile');
+        toast.showToast(t('pairingInProgress') || 'Masaüstü cihaz ile eşleştiriliyor...');
+
+        let pairResult = null;
+        if (typeof sendPairRequest === 'function') {
+          pairResult = await sendPairRequest(pairing).catch(() => null);
+        }
+
+        if (!pairResult || !pairResult.success) {
+          isBarcodeLocked.current = false;
+          showAlert(
+            t('syncErrorTitle') || 'Eşleştirme Hatası',
+            t('pairingFailedBody') || 'Masaüstü cihaz ile eşleşme kurulamadı.\n\nLütfen kontrol edin:\n• Telefon ve bilgisayarınız aynı Wi-Fi / yerel ağa bağlı olmalı.\n• Masaüstünde Fuin\'de "Cihaz Eşle" veya "Eşitle" açık olmalı.',
+            [{
+              text: t('btnOk') || 'Tamam',
+              onPress: () => {
+                isBarcodeLocked.current = false;
+              }
+            }]
+          );
+          return;
+        }
+
         await savePairingInfo(pairing);
         setLanPairingVersion(v => v + 1);
-        if (typeof sendPairRequest === 'function') {
-          sendPairRequest(pairing).catch(() => {});
-        }
 
         // If user has an active unlocked vault, immediately perform two-way sync
         if (vaultData) {
