@@ -26,7 +26,10 @@ export default function HealthModal({ visible, entries, onClose }) {
     const pre = hash.slice(0, 5);
     const suf = hash.slice(5);
     try {
-      const r = await fetch(`https://api.pwnedpasswords.com/range/${pre}`, { headers: { 'Add-Padding': 'true' } });
+      const r = await fetch(`https://api.pwnedpasswords.com/range/${pre}`, {
+        cache: 'no-store',
+        headers: { 'Add-Padding': 'true' }
+      });
       if (!r.ok) return -1;
       const text = await r.text();
       const lines = text.split('\n');
