@@ -95,6 +95,7 @@ function AppInner() {
   const [syncFailCount, setSyncFailCount] = useState(0);
   const [syncLockUntil, setSyncLockUntil] = useState(0);
   const isBarcodeLocked = useRef(false);
+  const isLanSyncing = useRef(false);
   const [lanPairingVersion, setLanPairingVersion] = useState(0);
   const [syncIntent, setSyncIntent] = useState('sync'); // 'sync' | 'pair'
   const [hasPairedDevice, setHasPairedDevice] = useState(false);
@@ -286,6 +287,8 @@ function AppInner() {
   }, [lanPairingVersion, mode]);
 
   const handlePerformLanSync = async () => {
+    if (isLanSyncing.current) return;
+    isLanSyncing.current = true;
 
     try {
       const { getPairingInfo } = require('./src/sync-lan-mobile');
@@ -386,6 +389,7 @@ function AppInner() {
       }
     } finally {
       setIsDecrypting(false);
+      isLanSyncing.current = false;
       isBarcodeLocked.current = false;
     }
   };
@@ -477,7 +481,6 @@ function AppInner() {
         }
 
         if (!pairResult || !pairResult.success) {
-          isBarcodeLocked.current = false;
           showAlert(
             t('syncErrorTitle') || 'Eşleştirme Hatası',
             t('pairingFailedBody') || 'Masaüstü cihaz ile eşleşme kurulamadı.\n\nLütfen kontrol edin:\n• Telefon ve bilgisayarınız aynı Wi-Fi / yerel ağa bağlı olmalı.\n• Masaüstünde Fuin\'de "Cihaz Eşle" veya "Eşitle" açık olmalı.',
@@ -494,12 +497,12 @@ function AppInner() {
         await savePairingInfo(pairing);
         setLanPairingVersion(v => v + 1);
 
-        // If user has an active unlocked vault, immediately perform two-way sync
+        // If user has an active unlocked vault, switch away from scanner immediately and perform two-way sync
         if (vaultData) {
-          isBarcodeLocked.current = false;
           setSyncIntent('sync');
           toast.showToast(t('syncLanInProgress') || 'Cihaz eşleşti, veriler eşitleniyor...');
-          handlePerformLanSync();
+          setMode('vault');
+          await handlePerformLanSync();
           return;
         }
 
@@ -511,8 +514,8 @@ function AppInner() {
               text: t('btnSyncWifiNow'),
               style: 'primary',
               onPress: () => {
-                isBarcodeLocked.current = false;
                 setSyncIntent('sync');
+                setMode(vaultData ? 'vault' : 'lock');
                 handlePerformLanSync();
               }
             },
