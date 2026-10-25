@@ -227,7 +227,7 @@ function sanitizeForCBOR(obj) {
     // Tolerated if engine stream buffer throws
   }
 
-  if (!hashMatches) {
+  if (!hashMatches && typeof __DEV__ !== 'undefined' && __DEV__) {
     console.warn('[Sync-V2] Notice: Hermes platform CBOR serialization variance detected. AEAD authentication valid.');
   }
 

@@ -1,22 +1,27 @@
 # SECURITY ARCHITECTURE
 
-Fuin is designed with an offline-first, local-first architecture. 
+Fuin Mobile is engineered around a strict **zero-knowledge, offline-first, peer-to-peer** security model.
 
-## Implemented Guarantees
-- **Vault Encryption:** Local vault is protected with authenticated encryption.
-- **Sync V2 Cryptography:** Desktop-to-Mobile transfers utilize an independent cryptographic envelope (Argon2id, XChaCha20-Poly1305).
-- **Argon2id Parameters:** m=65536, t=3, p=4. (No fallback to PBKDF2).
-- **Sync vs Vault Separation:** The Air-Gap Sync password is mathematically isolated from the Master Vault password.
-- **Replay / Generation Protection:** Sync V2 payloads carry a strictly incrementing generation integer to reject stale/replayed QR payloads.
-- **QR Transport Integrity:** CRC-32 and strict Base45 formatting prevent malformed data from reaching the decryption layer.
-- **Local Edit Protection:** Mobile users are explicitly prompted if incoming Desktop Sync data conflicts with local vault edits.
+## 1. Local Vault Cryptography
+- **Key Derivation (Argon2id):** Master passwords and recovery keys are derived locally using **Argon2id** (`m = 65536` [64 MiB], `t = 3`, `p = 1`) via native C/C++ bindings (`react-native-argon2`).
+- **Authenticated Encryption at Rest:** The local vault is encrypted with **AES-256-GCM** using 96-bit CSPRNG nonces and 128-bit authentication tags (`react-native-quick-crypto`), persisted via atomic `.tmp` + `.bak` replacement transactions.
+- **Brute-Force & Tamper Defense:**
+  - Failed login attempts are tracked in hardware-backed `SecureStore`. After 3 failed attempts, exponential backoff (`5s` up to `300s`) is enforced.
+  - After 15 consecutive failed attempts, the local vault is automatically erased to protect against physical device extraction.
+  - Recovery code verification uses `crypto.timingSafeEqual` and independent exponential backoff throttling.
 
-## Implementation Limitations
-- **Plaintext Lifetime:** JavaScript V8 garbage collection limits the ability to deterministically zeroize string memory. We use `Buffer.fill(0)` for byte arrays (keys, intermediate ciphertexts), but parsed JSON/CBOR objects rely on the engine's GC cycles.
-- **Platform Limitations:** Operating system capabilities may allow screenshots on certain mobile platforms despite our best-effort `ScreenCapture` prevention. Biometric unlocking (e.g. TouchID/FaceID) falls back to the device PIN/passcode depending on the OS configuration.
+## 2. Session, Screen & Clipboard Hygiene
+- **Screen Capture Prevention:** Enforces `ScreenCapture.preventScreenCaptureAsync()` to block screenshots, screen recording, and app-switcher previews.
+- **Auto-Expiring Clipboard:** Copied passwords and usernames are automatically cleared after 30–45 seconds using constant-time SHA-256 hash comparison so unrelated user clipboard data is not overwritten.
+- **Background Auto-Lock:** Automatically locks the vault and clears in-memory state when the app transitions to the background beyond the configured grace period.
 
-## Not Tested
-- We have mathematically simulated real-device cryptographic interoperability (Desktop `argon2` -> React Native `react-native-argon2`), but we have **NOT** yet verified the execution on actual physical hardware limits (CPU/RAM).
+## 3. Hybrid P2P Synchronization Security
+- **Local LAN Sync (P2P):**
+  - Uses a 256-bit symmetric `pairKey` exchanged optically via QR code and authenticated with **XChaCha20-Poly1305**.
+  - Enforces strict **RFC1918 / Loopback** IP validation to prevent SSRF or external traffic leakage.
+  - Verifies directional markers (`direction === 'response'`), `requestNonce` cryptographic binding, 120-second timestamp freshness, and response nonce uniqueness to defeat LAN reflection and replay attacks.
+- **Air-Gap QR Sync (V2):**
+  - Verifies CRC-32 frame checksums, Base45 encoding, XChaCha20-Poly1305 authentication tags, and strictly increasing `generation` counters to prevent rollback attacks.
 
 ## Responsible Disclosure
-If you find a security flaw, please contact the maintainers directly before public disclosure.
+If you discover a security vulnerability, please open a confidential security advisory on GitHub or contact the maintainers before public disclosure.

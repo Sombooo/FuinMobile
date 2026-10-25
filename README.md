@@ -1,59 +1,99 @@
 <div align="center">
-  
-# ⬡ Fuin Mobile
+
+<img src="assets/icon.png" width="84" alt="Fuin Mobile Logo" />
+
+# Fuin Mobile
 **Quietly secure on the go.**
 
-The official mobile companion for the [Fuin](https://github.com/Sombooo/Fuin) local-first password manager. Built for privacy.
+The mobile companion I built for the [Fuin](https://github.com/Sombooo/Fuin) local-first password and 2FA manager.
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-[![Platform: iOS | Android](https://img.shields.io/badge/Platform-iOS%20%7C%20Android-lightgray.svg)](#)
+[![Platform: Android](https://img.shields.io/badge/Platform-Android-366347.svg)](#)
+[![Desktop: Fuin](https://img.shields.io/badge/Desktop-macOS%20%7C%20Windows-lightgray.svg)](https://github.com/Sombooo/Fuin)
 
 </div>
 
 <br />
 
-> [!NOTE]
-> **Vibe Coding Project:** Fuin Mobile is built with AI-assisted "vibe coding". While it implements strict offline-first security principles, please explore, audit, and use it at your own discretion.
+<div align="center">
+<table>
+  <tr>
+    <td align="center" width="33%">
+      <img src="assets/screenshots/mobile-lock-dark.jpg" width="240" alt="Lock Screen (Dark)" /><br />
+      <sub><b>Zen Dark — Lock Screen</b></sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="assets/screenshots/mobile-vault-dark.jpg" width="240" alt="Vault Screen (Dark)" /><br />
+      <sub><b>Zen Dark — Vault</b></sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="assets/screenshots/mobile-generator-dark.jpg" width="240" alt="Password Generator (Dark)" /><br />
+      <sub><b>Password Generator</b></sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="33%">
+      <img src="assets/screenshots/mobile-lock-light.jpg" width="240" alt="Lock Screen (Warm Paper)" /><br />
+      <sub><b>Warm Paper — Lock Screen</b></sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="assets/screenshots/mobile-vault-light.jpg" width="240" alt="Vault Screen (Warm Paper)" /><br />
+      <sub><b>Warm Paper — Vault</b></sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="assets/screenshots/mobile-settings-light.jpg" width="240" alt="Settings (Warm Paper)" /><br />
+      <sub><b>Settings & Pairing</b></sub>
+    </td>
+  </tr>
+</table>
+</div>
 
-## What is Fuin Mobile?
+<br />
 
-Fuin Mobile brings your Fuin password vault to your pocket without compromising on privacy. 
+## Why I Built Fuin Mobile
 
-Just like the desktop application, Fuin Mobile operates **completely offline**. It has no internet connectivity requirements, connects to no remote servers, and uses no third-party cloud infrastructure.
+When I built the desktop version of **[Fuin](https://github.com/Sombooo/Fuin)** to keep my passwords off the cloud, I still needed a practical way to access my logins on my phone without setting up a central server.
 
-- **Air-Gapped QR Sync (V2):** Sync your vault from your computer by simply scanning animated QR codes with your camera—completely offline, with zero network or Bluetooth exposure.
-- **Biometric Authentication:** Seamless and secure access using Face ID, Touch ID, or Android Biometrics.
-- **Screen Capture Protection:** Built-in safeguards automatically block screenshots and screen recordings while viewing sensitive credentials.
-- **Zero Cloud Dependence:** No accounts, no telemetry, no tracking, and no subscriptions.
+I created **Fuin Mobile** to work either as a standalone local vault on your phone or as a direct companion to the desktop app. Everything—decryption, password generation, 2FA codes, and sync merging—runs locally on your device.
 
 ---
 
-## ⚙️ Security & Architecture
+## ✨ Features
 
-Fuin Mobile is built with proven, modern cryptography calibrated specifically for mobile hardware:
-
-- **Authenticated Local Encryption:** Your mobile vault is encrypted locally with **AES-256-GCM** using random nonces.
-- **Key Derivation (Argon2id):** When you set a local password, it is derived using **Argon2id** (64 MiB memory, 3 iterations) to resist brute-force attacks while ensuring rapid, responsive unlock times on mobile processors without triggering OS memory termination.
-- **Air-Gapped Sync Cryptography:** Cross-device transfer envelopes are encrypted using **XChaCha20-Poly1305** and protected by replay-resistant generational markers and snapshot hashing.
+- **Offline Vault:** Your passwords stay encrypted on your phone's local storage.
+- **Two Local Sync Modes:**
+  - **Wi-Fi LAN Sync:** Pair once with Fuin Desktop via QR code, then sync changes two-way over your home Wi-Fi using **XChaCha20-Poly1305** encrypted packets.
+  - **Air-Gap QR Sync:** Scan animated QR codes from your computer screen to sync completely offline without touching any network.
+- **Built-in 2FA (TOTP):** Generate 30-second 6-digit verification codes right inside your vault entries.
+- **Biometric Unlock:** Unlock your vault quickly using Fingerprint or Face ID alongside your master password.
+- **Password Health & Breach Check:** Check your passwords for weak or reused entries locally, or scan against known data breaches using HaveIBeenPwned's k-Anonymity range API.
+- **Import & Encrypted Backups:** Import from **Bitwarden**, **1Password**, **LastPass**, or **Chrome/Edge** (CSV/JSON), and restore from local AES-256-GCM snapshots.
 
 ---
 
-## 🚀 Development & Running from Source
+## 🔐 How It Protects Your Data
+
+Instead of buzzwords, here is a straightforward summary of what happens under the hood:
+
+- **Key Derivation:** Uses **Argon2id** (`64 MiB` memory, `3` iterations) to turn your master password into encryption keys on-device.
+- **Vault Encryption:** Encrypts your stored vault with authenticated **AES-256-GCM**.
+- **LAN & QR Transport:** Uses **XChaCha20-Poly1305** with per-request nonces and strict local-network (`RFC1918`) checks.
+- **Brute-Force & Screen Protection:** Applies increasing cooldown delays after failed password attempts, blocks screenshots in production builds (`FLAG_SECURE`), and clears copied passwords automatically.
+
+More details are available in [`SECURITY.md`](./SECURITY.md) and [`PRIVACY.md`](./PRIVACY.md).
+
+---
+
+## 🛠️ Running from Source
 
 Fuin Mobile is built with **React Native** and **Expo**.
 
-### Prerequisites
-- Node.js (v18+)
-- Expo CLI
-
-### Setup
 ```bash
-# Clone the repository
-git clone https://github.com/Sombooo/FuinMobile.git
-cd FuinMobile
-
 # Install dependencies
 npm install
+
+# Run static & crypto interoperability tests
+npm test
 
 # Start the Expo development server
 npx expo start
@@ -61,8 +101,8 @@ npx expo start
 
 ---
 
-## ☕ Support the Development
+## ☕ Support
 
-Fuin is an independent, open-source project. If you enjoy the absolute privacy and security it provides, consider supporting the continuous development of the desktop and mobile apps!
+Fuin is an independent open-source project licensed under the **GPLv3**. If you enjoy using it and want to support its development, you can buy me a coffee below:
 
 [![Support via Lemon Squeezy](https://img.shields.io/badge/Support_Fuin-Buy_Me_A_Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://fuindev.lemonsqueezy.com/checkout/buy/c898c753-098b-4c0b-a721-77332db06bdc)

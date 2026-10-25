@@ -22,6 +22,8 @@ export default function LockScreen({ password, setPassword, onLogin, onSync, onC
   const [isConfirmVisible, setIsConfirmVisible] = useState(false);
   const [recoveryModalVisible, setRecoveryModalVisible] = useState(false);
   const [recoveryInput, setRecoveryInput] = useState('');
+  const [recoveryFailCount, setRecoveryFailCount] = useState(0);
+  const [recoveryLockUntil, setRecoveryLockUntil] = useState(0);
   const [resetModalVisible, setResetModalVisible] = useState(false);
   const [resetConfirmInput, setResetConfirmInput] = useState('');
 
@@ -51,6 +53,13 @@ export default function LockScreen({ password, setPassword, onLogin, onSync, onC
   };
 
   const handleRecovery = async () => {
+    const now = Date.now();
+    if (now < recoveryLockUntil) {
+      const waitSec = Math.ceil((recoveryLockUntil - now) / 1000);
+      toast.showToast(`${t('toastInvalidRecoveryKey')} (${waitSec}s)`);
+      return;
+    }
+
     try {
       const crypto = require('react-native-quick-crypto');
       const savedHashHex = await SecureStore.getItemAsync('fuin-recovery-code-hash');
@@ -84,11 +93,16 @@ export default function LockScreen({ password, setPassword, onLogin, onSync, onC
           const ciphertext = payload.subarray(60);
           
           const recoveryKey = await deriveLocalKey(input, recoverySalt);
-          const decipher = crypto.createDecipheriv('aes-256-gcm', recoveryKey, iv);
-          decipher.setAuthTag(authTag);
-          let dec = decipher.update(ciphertext);
-          dec = Buffer.concat([dec, decipher.final()]);
-          recoveredPassword = dec.toString('utf8');
+          try {
+            const decipher = crypto.createDecipheriv('aes-256-gcm', recoveryKey, iv);
+            decipher.setAuthTag(authTag);
+            let dec = decipher.update(ciphertext);
+            dec = Buffer.concat([dec, decipher.final()]);
+            recoveredPassword = dec.toString('utf8');
+            dec.fill(0);
+          } finally {
+            recoveryKey.fill(0);
+          }
         }
       } else if (legacyKey && legacyPass) {
         const inputHash = crypto.createHash('sha256').update(input).digest();
@@ -96,17 +110,30 @@ export default function LockScreen({ password, setPassword, onLogin, onSync, onC
         if (inputHash.length === targetHash.length && crypto.timingSafeEqual(inputHash, targetHash)) {
           isMatch = true;
           recoveredPassword = legacyPass;
+          // Clean up legacy plaintext keys once recovered
+          await SecureStore.deleteItemAsync('fuin-recovery-code').catch(() => {});
+          await SecureStore.deleteItemAsync('fuin-recovery-pass').catch(() => {});
         }
       }
       
       if (isMatch && recoveredPassword) {
+        setRecoveryFailCount(0);
+        setRecoveryLockUntil(0);
         setPassword(recoveredPassword);
         setRecoveryModalVisible(false);
         toast.showToast(t('toastPasswordRestored'));
       } else {
+        const nextFail = recoveryFailCount + 1;
+        setRecoveryFailCount(nextFail);
+        const delaySec = Math.min(Math.pow(2, nextFail - 1), 30);
+        setRecoveryLockUntil(Date.now() + delaySec * 1000);
         toast.showToast(t('toastInvalidRecoveryKey'));
       }
     } catch (e) {
+      const nextFail = recoveryFailCount + 1;
+      setRecoveryFailCount(nextFail);
+      const delaySec = Math.min(Math.pow(2, nextFail - 1), 30);
+      setRecoveryLockUntil(Date.now() + delaySec * 1000);
       toast.showToast(t('toastGenericError'));
     }
   };

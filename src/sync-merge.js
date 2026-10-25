@@ -28,15 +28,18 @@ function normalizeEntry(entry) {
   if (!entry || typeof entry !== 'object') return null;
 
   const now = Date.now();
+  const maxAllowedTs = now + 300000; // +5 min clock-skew ceiling (blocks future timestamp poisoning)
   const id = entry.id || `${now}-${Math.random().toString(36).substring(2, 9)}`;
 
-  let updatedAt = parseTimestamp(entry.updatedAt) ??
-                  parseTimestamp(entry.updated) ??
-                  parseTimestamp(entry.createdAt) ??
-                  parseTimestamp(entry.created) ??
-                  now;
+  let rawUpdatedAt = parseTimestamp(entry.updatedAt) ??
+                     parseTimestamp(entry.updated) ??
+                     parseTimestamp(entry.createdAt) ??
+                     parseTimestamp(entry.created) ??
+                     now;
+  let updatedAt = Math.min(rawUpdatedAt, maxAllowedTs);
 
-  let deletedAt = parseTimestamp(entry.deletedAt);
+  let rawDeletedAt = parseTimestamp(entry.deletedAt);
+  let deletedAt = rawDeletedAt !== null ? Math.min(rawDeletedAt, maxAllowedTs) : null;
   if (deletedAt === null && entry.isDeleted) {
     deletedAt = updatedAt;
   }
@@ -122,10 +125,10 @@ function normalizeSite(s) {
 }
 
 function getCredentialKey(e) {
-  if (!e) return '';
+  if (!e || e.isDeleted || e.deletedAt) return '';
   const site = normalizeSite(e.site);
   const user = (e.username || '').trim().toLowerCase();
-  return site ? `${site}||${user}` : '';
+  return (site && user) ? `${site}||${user}` : '';
 }
 
 export function mergeVaultEntries(localEntries, remoteEntries) {

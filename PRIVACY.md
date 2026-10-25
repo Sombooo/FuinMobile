@@ -1,25 +1,20 @@
 # PRIVACY POLICY & DISCLOSURES
 
-Fuin takes a strict local-first and offline-first approach to your data.
+Fuin Mobile is built on a strict **local-first, zero-knowledge** privacy model.
 
-## What we DO NOT do:
-- **No Cloud Infrastructure:** We do not host your vault on our servers.
-- **No Accounts:** You do not need to register an account to use Fuin.
-- **No Telemetry:** We do not collect product analytics, crash logs, or telemetry.
+## 1. What We Do Not Collect
+- **No Cloud Infrastructure:** Your vault is never uploaded to or stored on any remote server.
+- **No User Accounts:** Fuin Mobile requires no sign-up, email address, or personal identifier.
+- **No Telemetry or Analytics:** Fuin Mobile contains zero analytics SDKs, advertising identifiers, or crash-reporting trackers.
 
-## What information is stored locally:
-Your passwords, OTP seeds, and secure notes are encrypted and stored purely on your local filesystem (Desktop and Mobile). 
+## 2. Local Data Storage
+All passwords, TOTP secrets, categories, and notes are encrypted with **AES-256-GCM** and stored exclusively in your device's sandboxed application storage and hardware-backed `SecureStore`.
 
-## Data Transfers (Air-Gap Sync V2):
-- Files and vault entries remain local unless you explicitly initiate an Air-Gap Sync transfer.
-- The transfer is strictly Desktop → Mobile via animated QR codes.
-- No network connection (Wi-Fi, Bluetooth, or LAN) is used for the transfer.
-- Your vault data NEVER leaves your physical proximity.
+## 3. Cross-Device Synchronization
+Your data only moves between your own devices when you explicitly initiate a sync session:
+- **Local LAN Sync (P2P):** Transfers XChaCha20-Poly1305 encrypted vault packets directly between Fuin Mobile and Fuin Desktop over your local Wi-Fi network (strictly restricted to private RFC1918 IP addresses).
+- **Air-Gap QR Sync (V2):** Transfers encrypted vault chunks optically via animated QR codes using the device camera with zero network connectivity required.
 
-## Browser Extension Permissions
-The Fuin Browser Extension requests the following permissions:
-- `activeTab`: To fill passwords into the current page upon user action.
-- `nativeMessaging`: To communicate securely with the Fuin Desktop application locally over a socket.
-- `host_permissions: "https://*/*"`: Password filling is explicitly restricted to secure HTTPS websites.
-
-No information is ever sent to external APIs by the extension.
+## 4. Device Permissions
+- **Camera (`CAMERA`):** Used exclusively on demand to scan pairing and Air-Gap sync QR codes from Fuin Desktop.
+- **Biometrics (`USE_BIOMETRIC` / `NSFaceIDUsageDescription`):** Used locally to unlock your vault via Android BiometricPrompt, Touch ID, or Face ID.

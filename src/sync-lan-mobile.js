@@ -126,6 +126,22 @@ export function decryptLanPayload(packet, pairKeyBuf) {
   return JSON.parse(Buffer.from(decrypted).toString('utf8'));
 }
 
+const _usedResponseNonces = new Map();
+const RESPONSE_NONCE_TTL_MS = 5 * 60 * 1000;
+
+function checkAndRecordResponseNonce(nonce) {
+  const now = Date.now();
+  for (const [k, ts] of _usedResponseNonces.entries()) {
+    if (now - ts > RESPONSE_NONCE_TTL_MS) {
+      _usedResponseNonces.delete(k);
+    }
+  }
+  if (_usedResponseNonces.has(nonce)) {
+    throw new Error('Güvenlik hatası: Tekrarlanan senkronizasyon yanıtı algılandı (replay engellendi).');
+  }
+  _usedResponseNonces.set(nonce, now);
+}
+
 export async function performLanSync(vaultData) {
   const pairing = await getPairingInfo();
   if (!pairing) {
@@ -147,92 +163,110 @@ export async function performLanSync(vaultData) {
   }
 
   const pairKeyBuf = Buffer.from(pairing.pairKey, 'hex');
-  const payload = {
-    protocol: 'fuin-lan-v1',
-    timestamp: Date.now(),
-    entries
-  };
+  try {
+    const payload = {
+      protocol: 'fuin-lan-v1',
+      direction: 'request',
+      timestamp: Date.now(),
+      entries
+    };
 
-  const encrypted = encryptLanPayload(payload, pairKeyBuf);
-  const mobileDeviceId = await getMobileDeviceId();
+    const encrypted = encryptLanPayload(payload, pairKeyBuf);
+    const mobileDeviceId = await getMobileDeviceId();
 
-  const rawIps = pairing.addresses && pairing.addresses.length > 0 ? pairing.addresses : ['192.168.1.100'];
-  const candidateIps = rawIps.filter(ip => isRFC1918OrLoopback(ip));
-  if (candidateIps.length === 0) {
-    throw new Error('Güvenlik hatası: Geçerli bir yerel ağ (RFC1918) IP adresi bulunamadı.');
-  }
-  let lastError = null;
-  let responseData = null;
+    const rawIps = pairing.addresses && pairing.addresses.length > 0 ? pairing.addresses : ['192.168.1.100'];
+    const candidateIps = rawIps.filter(ip => isRFC1918OrLoopback(ip));
+    if (candidateIps.length === 0) {
+      throw new Error('Güvenlik hatası: Geçerli bir yerel ağ (RFC1918) IP adresi bulunamadı.');
+    }
+    let lastError = null;
+    let responseData = null;
 
-  for (const ip of candidateIps) {
-    let timer = null;
-    try {
-      const url = `http://${ip}:${pairing.port}/sync`;
-      const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-      if (controller) {
-        timer = setTimeout(() => controller.abort(), 3500);
-      }
-
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          deviceId: pairing.deviceId,
-          mobileDeviceId,
-          deviceName: 'Mobil Cihaz',
-          nonce: encrypted.nonce,
-          ciphertext: encrypted.ciphertext
-        }),
-        signal: controller ? controller.signal : undefined
-      });
-
-      if (timer) clearTimeout(timer);
-
-      if (!res.ok) {
-        const errJson = await res.json().catch(() => ({}));
-        const errMsg = errJson.error || `HTTP ${res.status}`;
-        if (res.status === 401 || res.status === 403 || res.status === 400) {
-          if (res.status === 401 || (errMsg && errMsg.toLowerCase().includes('not paired'))) {
-            await clearPairingInfo().catch(() => {});
-            lastError = new Error('Masaüstü cihazında bu eşleşme kaldırılmış. Bağlantı sıfırlandı.');
-          } else {
-            lastError = new Error(errMsg);
-          }
-          break;
+    for (const ip of candidateIps) {
+      let timer = null;
+      try {
+        const url = `http://${ip}:${pairing.port}/sync`;
+        const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+        if (controller) {
+          timer = setTimeout(() => controller.abort(), 3500);
         }
-        throw new Error(errMsg);
+
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            deviceId: pairing.deviceId,
+            mobileDeviceId,
+            deviceName: 'Mobil Cihaz',
+            nonce: encrypted.nonce,
+            ciphertext: encrypted.ciphertext
+          }),
+          signal: controller ? controller.signal : undefined
+        });
+
+        if (timer) clearTimeout(timer);
+
+        if (!res.ok) {
+          const errJson = await res.json().catch(() => ({}));
+          const errMsg = errJson.error || `HTTP ${res.status}`;
+          if (res.status === 401 || res.status === 403 || res.status === 400) {
+            if (res.status === 401 || (errMsg && errMsg.toLowerCase().includes('not paired'))) {
+              // SECURITY: Never auto-delete local pairKey on unauthenticated HTTP 401 (prevents LAN ARP-spoof unpair DoS)
+              lastError = new Error('Masaüstü cihazı eşleşmeyi doğrulayamadı. Masaüstünde eşleşmeyi kaldırdıysanız yeniden QR okutun.');
+            } else {
+              lastError = new Error(errMsg);
+            }
+            break;
+          }
+          throw new Error(errMsg);
+        }
+
+        responseData = await res.json();
+        if (ip && Array.isArray(pairing.addresses) && pairing.addresses[0] !== ip) {
+          pairing.addresses = [ip, ...pairing.addresses.filter(a => a !== ip)];
+          savePairingInfo(pairing).catch(() => {});
+        }
+        break;
+      } catch (e) {
+        if (timer) clearTimeout(timer);
+        lastError = e;
       }
+    }
 
-      responseData = await res.json();
-      if (ip && Array.isArray(pairing.addresses) && pairing.addresses[0] !== ip) {
-        pairing.addresses = [ip, ...pairing.addresses.filter(a => a !== ip)];
-        savePairingInfo(pairing).catch(() => {});
+    if (!responseData || typeof responseData.nonce !== 'string' || typeof responseData.ciphertext !== 'string') {
+      throw new Error(`Masaüstü cihazına bağlanılamadı: ${lastError?.message || 'Zaman aşımı'}`);
+    }
+
+    if (responseData.nonce === encrypted.nonce) {
+      throw new Error('Güvenlik hatası: İstek paketi yansıtma saldırısı engellendi (reflection).');
+    }
+    checkAndRecordResponseNonce(responseData.nonce);
+
+    const decryptedResponse = decryptLanPayload({
+      nonce: responseData.nonce,
+      ciphertext: responseData.ciphertext
+    }, pairKeyBuf);
+
+    // Cryptographic direction & request-nonce binding check (prevents Reflection & Stale Response Injection)
+    if (
+      decryptedResponse.direction !== 'response' ||
+      decryptedResponse.requestNonce !== encrypted.nonce
+    ) {
+      throw new Error('Güvenlik hatası: Senkronizasyon yanıtı bu istekle eşleşmiyor (MitM / Reflection engellendi).');
+    }
+
+    // Replay attack guard: Validate response timestamp freshness
+    if (decryptedResponse && typeof decryptedResponse.timestamp === 'number') {
+      const timeDelta = Math.abs(Date.now() - decryptedResponse.timestamp);
+      if (timeDelta > 120000) {
+        throw new Error('Senkronizasyon yanıtı zaman aşımına uğramış (replay koruması)');
       }
-      break;
-    } catch (e) {
-      if (timer) clearTimeout(timer);
-      lastError = e;
     }
+
+    return decryptedResponse;
+  } finally {
+    pairKeyBuf.fill(0);
   }
-
-  if (!responseData) {
-    throw new Error(`Masaüstü cihazına bağlanılamadı: ${lastError?.message || 'Zaman aşımı'}`);
-  }
-
-  const decryptedResponse = decryptLanPayload({
-    nonce: responseData.nonce,
-    ciphertext: responseData.ciphertext
-  }, pairKeyBuf);
-
-  // Replay attack guard: Validate response timestamp freshness
-  if (decryptedResponse && typeof decryptedResponse.timestamp === 'number') {
-    const timeDelta = Math.abs(Date.now() - decryptedResponse.timestamp);
-    if (timeDelta > 120000) {
-      throw new Error('Senkronizasyon yanıtı zaman aşımına uğramış (replay koruması)');
-    }
-  }
-
-  return decryptedResponse;
 }
 
 export async function sendPairRequest(pairing) {
@@ -244,42 +278,68 @@ export async function sendPairRequest(pairing) {
   if (candidateIps.length === 0) return null;
 
   const pairKeyBuf = Buffer.from(pairing.pairKey, 'hex');
-  const encryptedProof = encryptLanPayload({
-    action: 'pair',
-    deviceId: mobileDeviceId,
-    deviceName: 'Mobil Cihaz',
-    timestamp: Date.now()
-  }, pairKeyBuf);
+  try {
+    const encryptedProof = encryptLanPayload({
+      action: 'pair',
+      direction: 'request',
+      deviceId: mobileDeviceId,
+      deviceName: 'Mobil Cihaz',
+      timestamp: Date.now()
+    }, pairKeyBuf);
 
-  for (const ip of candidateIps) {
-    let timer = null;
-    try {
-      const url = `http://${ip}:${pairing.port}/pair`;
-      const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-      if (controller) {
-        timer = setTimeout(() => controller.abort(), 2000);
-      }
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          deviceId: mobileDeviceId,
-          deviceName: 'Mobil Cihaz',
-          nonce: encryptedProof.nonce,
-          ciphertext: encryptedProof.ciphertext
-        }),
-        signal: controller ? controller.signal : undefined
-      });
-      if (timer) clearTimeout(timer);
-      if (res.ok) {
-        if (ip && Array.isArray(pairing.addresses) && pairing.addresses[0] !== ip) {
-          pairing.addresses = [ip, ...pairing.addresses.filter(a => a !== ip)];
+    for (const ip of candidateIps) {
+      let timer = null;
+      try {
+        const url = `http://${ip}:${pairing.port}/pair`;
+        const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+        if (controller) {
+          timer = setTimeout(() => controller.abort(), 2000);
         }
-        return await res.json();
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            deviceId: mobileDeviceId,
+            deviceName: 'Mobil Cihaz',
+            nonce: encryptedProof.nonce,
+            ciphertext: encryptedProof.ciphertext
+          }),
+          signal: controller ? controller.signal : undefined
+        });
+        if (timer) clearTimeout(timer);
+        if (res.ok) {
+          const resJson = await res.json();
+          if (
+            !resJson ||
+            typeof resJson.nonce !== 'string' ||
+            typeof resJson.ciphertext !== 'string' ||
+            resJson.nonce === encryptedProof.nonce
+          ) {
+            continue;
+          }
+          const ack = decryptLanPayload({
+            nonce: resJson.nonce,
+            ciphertext: resJson.ciphertext
+          }, pairKeyBuf);
+          if (
+            !ack ||
+            ack.action !== 'pair-ack' ||
+            ack.direction !== 'response' ||
+            ack.requestNonce !== encryptedProof.nonce
+          ) {
+            continue;
+          }
+          if (ip && Array.isArray(pairing.addresses) && pairing.addresses[0] !== ip) {
+            pairing.addresses = [ip, ...pairing.addresses.filter(a => a !== ip)];
+          }
+          return resJson;
+        }
+      } catch {
+        if (timer) clearTimeout(timer);
       }
-    } catch {
-      if (timer) clearTimeout(timer);
     }
+    return null;
+  } finally {
+    pairKeyBuf.fill(0);
   }
-  return null;
 }

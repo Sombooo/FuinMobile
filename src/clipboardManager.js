@@ -2,6 +2,7 @@ import * as Clipboard from 'expo-clipboard';
 import * as SecureStore from 'expo-secure-store';
 import { AppState } from 'react-native';
 import crypto from 'react-native-quick-crypto';
+import { Buffer } from '@craftzdog/react-native-buffer';
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -83,7 +84,18 @@ export async function clearIfExpired() {
       // Time has expired. Check if clipboard still holds Fuin data.
       try {
         const currentClip = await Clipboard.getStringAsync().catch(() => null);
-        if (!savedHash || (typeof currentClip === 'string' && computeClipHash(currentClip) === savedHash)) {
+        let shouldClear = !savedHash;
+        if (!shouldClear && typeof currentClip === 'string') {
+          const currentHashBuf = Buffer.from(computeClipHash(currentClip), 'utf8');
+          const savedHashBuf = Buffer.from(String(savedHash), 'utf8');
+          if (
+            currentHashBuf.length === savedHashBuf.length &&
+            crypto.timingSafeEqual(currentHashBuf, savedHashBuf)
+          ) {
+            shouldClear = true;
+          }
+        }
+        if (shouldClear) {
           await Clipboard.setStringAsync('');
         }
       } catch {}
