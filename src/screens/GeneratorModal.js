@@ -13,7 +13,7 @@ import { generatePassword } from '../services/passwordGenerator';
 export default function GeneratorModal({ visible, onClose, onApply }) {
   const { theme } = useTheme();
   const styles = getStyles(theme);
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const { showAlert } = useAlert();
   const [length, setLength] = useState(16);
   const [useUpper, setUseUpper] = useState(true);
@@ -23,7 +23,13 @@ export default function GeneratorModal({ visible, onClose, onApply }) {
   const [excludeSimilar, setExcludeSimilar] = useState(true);
 
   const [generatedPassword, setGeneratedPassword] = useState('');
-  const [strength, setStrength] = useState('weak');
+  const [strengthInfo, setStrengthInfo] = useState({
+    score: 0,
+    percent: 20,
+    entropy: 0,
+    crackTime: 'less than a second',
+    crackTimeTr: '1 saniyeden az'
+  });
   const spinValue = useRef(new Animated.Value(0)).current;
 
   const generate = () => {
@@ -38,15 +44,24 @@ export default function GeneratorModal({ visible, onClose, onApply }) {
 
     if (!res.password) {
       setGeneratedPassword('');
-      setStrength('weak');
+      setStrengthInfo({
+        score: 0,
+        percent: 0,
+        entropy: 0,
+        crackTime: 'less than a second',
+        crackTimeTr: '1 saniyeden az'
+      });
       return;
     }
 
     setGeneratedPassword(res.password);
-
-    if (res.score >= 3) setStrength('strong');
-    else if (res.score >= 2) setStrength('medium');
-    else setStrength('weak');
+    setStrengthInfo({
+      score: res.score ?? 0,
+      percent: res.percent ?? 20,
+      entropy: res.entropy ?? 0,
+      crackTime: res.crackTime || 'less than a second',
+      crackTimeTr: res.crackTimeTr || '1 saniyeden az'
+    });
 
     // Spin animation
     spinValue.setValue(0);
@@ -102,11 +117,59 @@ export default function GeneratorModal({ visible, onClose, onApply }) {
           </View>
 
           <View style={styles.strengthBar}>
-            <View style={[styles.strengthFill, { width: strength === 'weak' ? '33%' : strength === 'medium' ? '66%' : '100%', backgroundColor: strength === 'weak' ? theme.red : strength === 'medium' ? 'orange' : theme.accent }]} />
+            <View
+              style={[
+                styles.strengthFill,
+                {
+                  width: `${strengthInfo.percent || 0}%`,
+                  backgroundColor:
+                    strengthInfo.score === 0
+                      ? theme.red
+                      : strengthInfo.score === 1
+                      ? '#e67e22'
+                      : strengthInfo.score === 2
+                      ? '#f1c40f'
+                      : strengthInfo.score === 3
+                      ? '#5cb85c'
+                      : theme.accent
+                }
+              ]}
+            />
           </View>
-          <CustomText style={styles.strengthLabel}>
-            {t('strengthLabel')} {strength === 'weak' ? t('strengthWeak') : strength === 'medium' ? t('strengthMedium') : t('strengthStrong')}
-          </CustomText>
+          <View style={styles.strengthMetaRow}>
+            <CustomText
+              style={[
+                styles.strengthTierText,
+                {
+                  color:
+                    strengthInfo.score === 0
+                      ? theme.red
+                      : strengthInfo.score === 1
+                      ? '#e67e22'
+                      : strengthInfo.score === 2
+                      ? '#f1c40f'
+                      : strengthInfo.score === 3
+                      ? '#5cb85c'
+                      : theme.accent
+                }
+              ]}
+            >
+              {t('strengthLabel')}
+              {strengthInfo.score === 0
+                ? t('strengthVeryWeak')
+                : strengthInfo.score === 1
+                ? t('strengthWeak')
+                : strengthInfo.score === 2
+                ? t('strengthMedium')
+                : strengthInfo.score === 3
+                ? t('strengthStrong')
+                : t('strengthVeryStrong')}
+            </CustomText>
+            <CustomText style={styles.strengthCrackText}>
+              {Math.round(strengthInfo.entropy || 0)} {t('strengthBitsUnit')} · {t('strengthCrackPrefix')}{' '}
+              {lang === 'en' ? strengthInfo.crackTime : strengthInfo.crackTimeTr}
+            </CustomText>
+          </View>
 
           <View style={styles.settingsBox}>
             <View style={[styles.row, {flexDirection: 'column', alignItems: 'stretch', gap: 10}]}>
@@ -167,6 +230,9 @@ const getStyles = (theme) => StyleSheet.create({
   iconBtn: { backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border, width: 34, height: 34, borderRadius: 8, justifyContent: 'center', alignItems: 'center' },
   strengthBar: { height: 6, backgroundColor: theme.border, borderRadius: 3, overflow: 'hidden', marginBottom: 8 },
   strengthFill: { height: '100%', borderRadius: 3 },
+  strengthMetaRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, gap: 8 },
+  strengthTierText: { fontSize: 12, fontWeight: 'bold' },
+  strengthCrackText: { color: theme.muted, fontSize: 11 },
   strengthLabel: { color: theme.muted, fontSize: 12, textAlign: 'center', marginBottom: 30 },
   settingsBox: { backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border, borderRadius: 8, padding: 15 },
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: theme.border2 },

@@ -115,12 +115,7 @@ function AppInner() {
   const [sharedEntryData, setSharedEntryData] = useState(null);
 
   useEffect(() => {
-    const DEV_ALLOW_SCREENSHOTS = false;
-    if (!DEV_ALLOW_SCREENSHOTS && !__DEV__) {
-      ScreenCapture.preventScreenCaptureAsync().catch(console.warn);
-    } else {
-      ScreenCapture.allowScreenCaptureAsync?.().catch(console.warn);
-    }
+    ScreenCapture.preventScreenCaptureAsync().catch(console.warn);
   }, []);
 
   useEffect(() => {
