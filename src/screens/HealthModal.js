@@ -5,6 +5,7 @@ import { Feather } from '@expo/vector-icons';
 import { useTheme } from '../theme';
 import { useI18n } from '../i18n';
 import crypto from 'react-native-quick-crypto';
+import { memDecrypt } from '../services/sessionSecurity';
 
 export default function HealthModal({ visible, entries, onClose }) {
   const { theme } = useTheme();
@@ -49,7 +50,8 @@ export default function HealthModal({ visible, entries, onClose }) {
     for (let i = 0; i < passwordEntries.length; i++) {
       const e = passwordEntries[i];
       setProgress({ current: i + 1, total: passwordEntries.length, currentSite: e.site || t('hibpUnknown') });
-      const count = await checkPwned(e.password);
+      const rawPw = typeof e.password === 'object' ? memDecrypt(e.password) : String(e.password || '');
+      const count = await checkPwned(rawPw);
       if (count > 0) {
         results.breached.push({ site: e.site, username: e.username, count });
       } else if (count === 0) {

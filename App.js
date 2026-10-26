@@ -20,6 +20,7 @@ import { Buffer } from '@craftzdog/react-native-buffer';
 import * as ScreenCapture from 'expo-screen-capture';
 import { clearIfExpired } from './src/clipboardManager';
 import useVaultLifecycle from './src/hooks/useVaultLifecycle';
+import { initSessionKey, clearSessionKey, protectEntries, unprotectEntries } from './src/services/sessionSecurity';
 
 import LockScreen from './src/screens/LockScreen';
 import VaultScreen from './src/screens/VaultScreen';
@@ -60,6 +61,7 @@ function AppInner() {
     });
   };
   const lockApp = () => {
+    clearSessionKey();
     setPassword('');
     setVaultData(null);
     setSyncPassword('');
@@ -186,8 +188,18 @@ function AppInner() {
       await SecureStore.deleteItemAsync('fuin_lock_until');
       setFailCount(0);
       
+      initSessionKey();
+      let safeVaultJson = decryptedJson;
+      try {
+        const parsed = JSON.parse(decryptedJson);
+        if (parsed && Array.isArray(parsed.entries)) {
+          parsed.entries = protectEntries(parsed.entries);
+          safeVaultJson = JSON.stringify(parsed);
+        }
+      } catch {}
+
       setPassword(pw);
-      setVaultData(decryptedJson);
+      setVaultData(safeVaultJson);
       changeModeSmooth('vault');
       setIsLoggingIn(false);
     } catch (e) {
@@ -316,6 +328,12 @@ function AppInner() {
       if (vaultData) {
         try {
           parsedVault = typeof vaultData === 'string' ? JSON.parse(vaultData) : vaultData;
+          if (parsedVault && Array.isArray(parsedVault.entries)) {
+            parsedVault = {
+              ...parsedVault,
+              entries: unprotectEntries(parsedVault.entries)
+            };
+          }
         } catch {}
       }
 
@@ -846,6 +864,7 @@ function AppInner() {
 
       stage = 'STATE';
       console.log('[VAULT_CREATE] STATE_START');
+      initSessionKey();
       await checkLocalVault();
       setVaultData(emptyVaultJson);
       setMode('vault');
@@ -873,11 +892,23 @@ function AppInner() {
 
   const handleUpdateVaultData = async (newVaultDataString) => {
     try {
-      const localEncrypted = await encryptLocalVault(newVaultDataString, password);
+      let parsed = null;
+      try { parsed = JSON.parse(newVaultDataString); } catch {}
+      let diskString = newVaultDataString;
+      let memoryString = newVaultDataString;
+
+      if (parsed && Array.isArray(parsed.entries)) {
+        const cleanEntries = unprotectEntries(parsed.entries);
+        diskString = JSON.stringify({ ...parsed, entries: cleanEntries });
+        const protectedEntries = protectEntries(cleanEntries);
+        memoryString = JSON.stringify({ ...parsed, entries: protectedEntries });
+      }
+
+      const localEncrypted = await encryptLocalVault(diskString, password);
       await saveVault(localEncrypted);
       await saveVaultBackup(localEncrypted);
       await setHasLocalEdits(true);
-      setVaultData(newVaultDataString);
+      setVaultData(memoryString);
       return true;
     } catch (e) {
       showAlert(t('alertError'), t('alertSaveFailed') + ' (Hata)');

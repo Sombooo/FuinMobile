@@ -39,22 +39,29 @@ export async function deriveLocalKey(password, saltBuffer) {
 export async function encryptLocalVault(vaultJsonString, password) {
   const localSalt = crypto.randomBytes(32);
   const iv = crypto.randomBytes(12);
-  
-  const localKey = await deriveLocalKey(password, localSalt);
-  
-  const cipher = crypto.createCipheriv('aes-256-gcm', localKey, iv);
-  const enc1 = cipher.update(Buffer.from(vaultJsonString, 'utf8'));
-  const enc2 = cipher.final();
-  const tag = cipher.getAuthTag();
-  
-  // Format: [localSalt32][iv12][tag16][ciphertext]
-  const packet = Buffer.concat([localSalt, iv, tag, enc1, enc2]);
-  const b64 = packet.toString('base64');
-  
-  // Zeroize key after encryption
-  localKey.fill(0);
-  
-  return b64;
+  let localKey = null;
+  let plainBuf = null;
+
+  try {
+    localKey = await deriveLocalKey(password, localSalt);
+    plainBuf = Buffer.from(vaultJsonString, 'utf8');
+
+    const cipher = crypto.createCipheriv('aes-256-gcm', localKey, iv);
+    const enc1 = cipher.update(plainBuf);
+    const enc2 = cipher.final();
+    const tag = cipher.getAuthTag();
+    
+    // Format: [localSalt32][iv12][tag16][ciphertext]
+    const packet = Buffer.concat([localSalt, iv, tag, enc1, enc2]);
+    return packet.toString('base64');
+  } finally {
+    if (localKey) {
+      try { localKey.fill(0); } catch {}
+    }
+    if (plainBuf) {
+      try { plainBuf.fill(0); } catch {}
+    }
+  }
 }
 
 export async function decryptLocalVault(b64Packet, password) {
@@ -63,27 +70,37 @@ export async function decryptLocalVault(b64Packet, password) {
     throw new Error('Lokal kasa dosya boyutu geçersiz');
   }
 
-  const payload = Buffer.from(b64Packet, 'base64');
-  
-  const localSalt = payload.subarray(0, 32);
-  const iv = payload.subarray(32, 44);
-  const authTag = payload.subarray(44, 60);
-  const ciphertext = payload.subarray(60);
-  
-  const localKey = await deriveLocalKey(password, localSalt);
-  
-  const decipher = crypto.createDecipheriv('aes-256-gcm', localKey, iv);
-  decipher.setAuthTag(authTag);
-  
-  let decrypted = decipher.update(ciphertext);
-  decrypted = Buffer.concat([decrypted, decipher.final()]);
-  
-  const vaultString = decrypted.toString('utf8');
-  
-  // Zeroize sensitive buffers
-  localKey.fill(0);
-  payload.fill(0);
-  decrypted.fill(0);
-  
-  return vaultString;
+  let payload = null;
+  let localKey = null;
+  let decrypted = null;
+
+  try {
+    payload = Buffer.from(b64Packet, 'base64');
+    
+    const localSalt = payload.subarray(0, 32);
+    const iv = payload.subarray(32, 44);
+    const authTag = payload.subarray(44, 60);
+    const ciphertext = payload.subarray(60);
+    
+    localKey = await deriveLocalKey(password, localSalt);
+    
+    const decipher = crypto.createDecipheriv('aes-256-gcm', localKey, iv);
+    decipher.setAuthTag(authTag);
+    
+    const dec1 = decipher.update(ciphertext);
+    const dec2 = decipher.final();
+    decrypted = Buffer.concat([dec1, dec2]);
+    
+    return decrypted.toString('utf8');
+  } finally {
+    if (localKey) {
+      try { localKey.fill(0); } catch {}
+    }
+    if (payload) {
+      try { payload.fill(0); } catch {}
+    }
+    if (decrypted) {
+      try { decrypted.fill(0); } catch {}
+    }
+  }
 }

@@ -2,6 +2,7 @@ import React from 'react';
 import { View, TouchableOpacity } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import CustomText from './CustomText';
+import { memDecrypt } from '../services/sessionSecurity';
 
 const VaultCardItem = React.memo(function VaultCardItem({
   item,
@@ -59,7 +60,7 @@ const VaultCardItem = React.memo(function VaultCardItem({
             delayPressIn={0}
             onPress={() => onCopy(item.password, t('fieldPassword'))}
           >
-            <CustomText style={styles.value}>{isPwVisible ? item.password : '••••••••'}</CustomText>
+            <CustomText style={styles.value}>{isPwVisible ? (typeof item.password === 'object' ? memDecrypt(item.password) : item.password) : '••••••••'}</CustomText>
           </TouchableOpacity>
         </View>
       </View>

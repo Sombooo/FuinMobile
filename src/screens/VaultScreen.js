@@ -27,6 +27,7 @@ import { copySecure } from '../clipboardManager';
 import FuinImporters from '../services/importers';
 import VaultCardItem from '../components/VaultCardItem';
 import useVaultSearch from '../hooks/useVaultSearch';
+import { memDecrypt, unprotectEntries } from '../services/sessionSecurity';
 
 export default function VaultScreen({ 
   vaultData, 
@@ -218,18 +219,27 @@ export default function VaultScreen({
   };
 
 
-  const handleCopy = useCallback(async (text, label) => {
+  const handleCopy = useCallback(async (val, label) => {
     const isPassword = label === t('fieldPassword');
+    const textToCopy = isPassword && typeof val === 'object' ? memDecrypt(val) : String(val || '');
     const duration = isPassword ? 45000 : 30000;
-    await copySecure(text, duration);
+    await copySecure(textToCopy, duration);
     showAlert(t('alertCopied'), isPassword ? t('toastCopiedClipboard45s') : label + t('toastCopiedClipboard30s'));
   }, [t, showAlert]);
 
   const togglePasswordVisibility = useCallback((id) => {
-    setVisiblePasswords(prev => ({
-      ...prev,
-      [id]: !prev[id]
-    }));
+    setVisiblePasswords(prev => {
+      const nextState = !prev[id];
+      if (nextState) {
+        setTimeout(() => {
+          setVisiblePasswords(p => ({ ...p, [id]: false }));
+        }, 3000);
+      }
+      return {
+        ...prev,
+        [id]: nextState
+      };
+    });
   }, []);
 
   const handleSaveEntry = async (updatedEntry) => {
@@ -428,7 +438,7 @@ export default function VaultScreen({
               <TouchableOpacity style={[styles.settingsCard, { flex: 1, alignItems: 'center' }]} onPress={async () => {
                 try {
                   const { StorageAccessFramework } = FileSystem;
-                  const jsonStr = JSON.stringify(parsedVault, null, 2);
+                  const jsonStr = JSON.stringify({ ...parsedVault, entries: unprotectEntries(entries) }, null, 2);
                   const fileName = 'fuin-yedek.json';
                   
                   if (Platform.OS === 'android') {
@@ -461,7 +471,7 @@ export default function VaultScreen({
                   
                   let csv = 'name,url,username,password,notes,category,totp\n';
                   entries.forEach(e => {
-                    const row = [e.site, e.url, e.username, e.password, e.note, e.category, e.totp]
+                    const row = [e.site, e.url, e.username, memDecrypt(e.password), e.note, e.category, memDecrypt(e.totp)]
                       .map(v => `"${(v||'').replace(/"/g, '""')}"`).join(',');
                     csv += row + '\n';
                   });

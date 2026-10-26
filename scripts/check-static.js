@@ -34,6 +34,7 @@ console.log('══════════════════════�
 const PURE_JS_TARGETS = [
   'src/services/passwordGenerator.js',
   'src/services/totpEngine.js',
+  'src/services/sessionSecurity.js',
   'src/services/importers/detector.js',
   'src/services/importers/csvImporter.js',
   'src/services/importers/jsonImporter.js',

@@ -38,7 +38,8 @@ export function useVaultSearch({ vaultData, t }) {
       // İçerik çakışmalarını temizle (aynı site, kullanıcı adı ve şifreye sahipse sadece 1 tanesini tut)
       const seenContent = new Set();
       const deduplicatedEntries = rawEntries.filter(e => {
-        const key = `${e.site}||${e.username}||${e.password}`;
+        const pwKey = typeof e.password === 'object' && e.password ? e.password.data : String(e.password || '');
+        const key = `${e.site}||${e.username}||${pwKey}`;
         if (seenContent.has(key)) return false;
         seenContent.add(key);
         return true;

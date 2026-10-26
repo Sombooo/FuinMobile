@@ -7,6 +7,7 @@ import GeneratorModal from './GeneratorModal';
 import { Feather } from '@expo/vector-icons';
 import { useI18n } from '../i18n';
 import { useAlert } from '../components/CustomAlert';
+import { memDecrypt } from '../services/sessionSecurity';
 
 export default function EditModal({ visible, entry, allCategories, onClose, onSave, onDelete, onRestore }) {
   const { theme } = useTheme();
@@ -35,10 +36,10 @@ export default function EditModal({ visible, entry, allCategories, onClose, onSa
         setSite(entry.site || '');
         setCategory(entry.category || t('cat_other'));
         setUsername(entry.username || '');
-        setPassword(entry.password || '');
+        setPassword(entry.password ? memDecrypt(entry.password) : '');
         setUrl(entry.url || '');
         setNote(entry.note || '');
-        setTotp(entry.totp || '');
+        setTotp(entry.totp ? memDecrypt(entry.totp) : '');
         setHasTotp(!!entry.totp);
         setFav(!!entry.fav);
       } else {
