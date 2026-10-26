@@ -219,15 +219,44 @@ export default function VaultScreen({
   };
 
 
-  const handleCopy = useCallback(async (val, label) => {
+  const verifyReprompt = useCallback(async (entry) => {
+    if (!entry || !entry.reprompt) return true;
+    try {
+      const hasHw = await LocalAuthentication.hasHardwareAsync();
+      const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+      if (hasHw && isEnrolled) {
+        const res = await LocalAuthentication.authenticateAsync({
+          promptMessage: t('repromptBioPrompt') || 'Korumalı kayda erişmek için kimliğinizi doğrulayın'
+        });
+        return res.success;
+      }
+      return true;
+    } catch (err) {
+      console.error('Reprompt auth error:', err);
+      return false;
+    }
+  }, [t]);
+
+  const handleCopy = useCallback(async (val, label, entry) => {
     const isPassword = label === t('fieldPassword');
+    if (isPassword && entry && entry.reprompt) {
+      const ok = await verifyReprompt(entry);
+      if (!ok) return;
+    }
     const textToCopy = isPassword && typeof val === 'object' ? memDecrypt(val) : String(val || '');
     const duration = isPassword ? 45000 : 30000;
     await copySecure(textToCopy, duration);
     showAlert(t('alertCopied'), isPassword ? t('toastCopiedClipboard45s') : label + t('toastCopiedClipboard30s'));
-  }, [t, showAlert]);
+  }, [t, showAlert, verifyReprompt]);
 
-  const togglePasswordVisibility = useCallback((id) => {
+  const togglePasswordVisibility = useCallback(async (entryOrId) => {
+    const isObj = typeof entryOrId === 'object' && entryOrId !== null;
+    const id = isObj ? entryOrId.id : entryOrId;
+    const entry = isObj ? entryOrId : entries.find(e => e.id === id);
+    if (!visiblePasswords[id] && entry && entry.reprompt) {
+      const ok = await verifyReprompt(entry);
+      if (!ok) return;
+    }
     setVisiblePasswords(prev => {
       const nextState = !prev[id];
       if (nextState) {
@@ -240,7 +269,7 @@ export default function VaultScreen({
         [id]: nextState
       };
     });
-  }, []);
+  }, [visiblePasswords, entries, verifyReprompt]);
 
   const handleSaveEntry = async (updatedEntry) => {
     let newEntries = [...entries];
@@ -309,10 +338,14 @@ export default function VaultScreen({
     setModalVisible(true);
   }, []);
 
-  const openEditModal = useCallback((entry) => {
+  const openEditModal = useCallback(async (entry) => {
+    if (entry && entry.reprompt) {
+      const ok = await verifyReprompt(entry);
+      if (!ok) return;
+    }
     setSelectedEntry(entry);
     setModalVisible(true);
-  }, []);
+  }, [verifyReprompt]);
 
   const handleOpenUrl = useCallback(async (rawUrl) => {
     try {

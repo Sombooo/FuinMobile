@@ -8,6 +8,7 @@ import { Feather } from '@expo/vector-icons';
 import { useI18n } from '../i18n';
 import { useAlert } from '../components/CustomAlert';
 import { memDecrypt } from '../services/sessionSecurity';
+import { copySecure } from '../clipboardManager';
 
 export default function EditModal({ visible, entry, allCategories, onClose, onSave, onDelete, onRestore }) {
   const { theme } = useTheme();
@@ -23,11 +24,13 @@ export default function EditModal({ visible, entry, allCategories, onClose, onSa
   const [totp, setTotp] = useState('');
   const [hasTotp, setHasTotp] = useState(false);
   const [fav, setFav] = useState(false);
+  const [reprompt, setReprompt] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
   // Modals state
   const [genVisible, setGenVisible] = useState(false);
   const [catVisible, setCatVisible] = useState(false);
+  const [historyVisible, setHistoryVisible] = useState(false);
   const [newCatName, setNewCatName] = useState('');
 
   useEffect(() => {
@@ -42,6 +45,7 @@ export default function EditModal({ visible, entry, allCategories, onClose, onSa
         setTotp(entry.totp ? memDecrypt(entry.totp) : '');
         setHasTotp(!!entry.totp);
         setFav(!!entry.fav);
+        setReprompt(!!entry.reprompt);
       } else {
         setSite('');
         setCategory(t('cat_other'));
@@ -52,9 +56,11 @@ export default function EditModal({ visible, entry, allCategories, onClose, onSa
         setTotp('');
         setHasTotp(false);
         setFav(false);
+        setReprompt(false);
       }
       setNewCatName('');
       setShowPassword(false);
+      setHistoryVisible(false);
     }
   }, [visible, entry]);
 
@@ -65,17 +71,29 @@ export default function EditModal({ visible, entry, allCategories, onClose, onSa
     }
     const finalCategory = category.trim() || t('cat_other');
     const now = Date.now();
+    let history = entry && Array.isArray(entry.history) ? [...entry.history] : [];
+    const oldPassword = entry && entry.password ? (typeof entry.password === 'object' ? memDecrypt(entry.password) : entry.password) : null;
+    if (entry && oldPassword && oldPassword !== password) {
+      history.unshift({
+        password: entry.password,
+        date: now
+      });
+      if (history.length > 5) {
+        history = history.slice(0, 5);
+      }
+    }
     onSave({
       id: entry ? entry.id : require('react-native-quick-crypto').randomUUID(),
       site, category: finalCategory, username, password, url, note, 
       totp: hasTotp ? totp : '', fav, 
+      reprompt: !!reprompt,
       created: entry ? (entry.created || entry.createdAt || now) : now,
       createdAt: entry ? (entry.createdAt || entry.created || now) : now,
       updated: now,
       updatedAt: now,
       deletedAt: null,
       isDeleted: false,
-      history: entry && Array.isArray(entry.history) ? entry.history : []
+      history
     });
   };
 
@@ -127,6 +145,13 @@ export default function EditModal({ visible, entry, allCategories, onClose, onSa
               </TouchableOpacity>
             </View>
 
+            {entry && Array.isArray(entry.history) && entry.history.length > 0 && (
+              <TouchableOpacity onPress={() => setHistoryVisible(true)} style={styles.historyBtn}>
+                <Feather name="clock" size={13} color={theme.accent} />
+                <CustomText style={styles.historyBtnText}>{t('btnPwHistory')} ({entry.history.length})</CustomText>
+              </TouchableOpacity>
+            )}
+
             <CustomText style={styles.label}>{t('fieldUrl')}</CustomText>
             <CustomTextInput style={styles.input} value={url} onChangeText={setUrl} placeholderTextColor={theme.border2} autoCapitalize="none" keyboardType="url" />
 
@@ -144,6 +169,17 @@ export default function EditModal({ visible, entry, allCategories, onClose, onSa
 
             <CustomText style={styles.label}>{t('fieldNote')}</CustomText>
             <CustomTextInput style={[styles.input, styles.textArea]} value={note} onChangeText={setNote} placeholderTextColor={theme.border2} multiline numberOfLines={4} textAlignVertical="top" />
+
+            <View style={[styles.row, { justifyContent: 'space-between', marginTop: 10, marginBottom: 15 }]}>
+              <View style={{ flex: 1, paddingRight: 10 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                  <Feather name="shield" size={13} color={theme.accent} />
+                  <CustomText style={styles.label}>{t('toggleRepromptLabel')}</CustomText>
+                </View>
+                <CustomText style={{ color: theme.muted, fontSize: 11, marginTop: 2 }}>{t('toggleRepromptSub')}</CustomText>
+              </View>
+              <Switch value={reprompt} onValueChange={setReprompt} trackColor={{ false: theme.border, true: theme.accent }} />
+            </View>
 
             {entry && !entry.isDeleted && (
               <TouchableOpacity style={styles.deleteBtn} onPress={() => {
@@ -196,6 +232,49 @@ export default function EditModal({ visible, entry, allCategories, onClose, onSa
         </View>
       </Modal>
 
+      <Modal visible={historyVisible} transparent animationType="fade" onRequestClose={() => setHistoryVisible(false)}>
+        <View style={styles.catOverlay}>
+          <View style={styles.catModal}>
+            <CustomText style={styles.catTitle}>{t('pwHistoryTitle')}</CustomText>
+            <ScrollView style={{maxHeight: 280, marginVertical: 15}}>
+              {entry?.history && entry.history.length > 0 ? (
+                entry.history.map((hist, idx) => {
+                  const histPw = typeof hist.password === 'object' ? memDecrypt(hist.password) : hist.password;
+                  const d = new Date(hist.date);
+                  const dateFormatted = isNaN(d.getTime()) ? '' : d.toLocaleString();
+                  return (
+                    <View key={idx} style={styles.histItem}>
+                      <View style={{ flex: 1, marginRight: 10 }}>
+                        <CustomText style={{ color: theme.muted, fontSize: 11, marginBottom: 2 }}>{dateFormatted}</CustomText>
+                        <CustomText style={{ color: theme.text, fontSize: 13, fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace' }}>
+                          {histPw ? (histPw.length > 4 ? histPw.slice(0, 2) + '••••' + histPw.slice(-2) : '••••') : '••••'}
+                        </CustomText>
+                      </View>
+                      <TouchableOpacity
+                        style={styles.copyHistBtn}
+                        onPress={async () => {
+                          if (histPw) {
+                            await copySecure(histPw, 45000);
+                            showAlert(t('alertCopied'), t('pwHistoryCopied'));
+                          }
+                        }}
+                      >
+                        <CustomText style={{ color: theme.accent, fontSize: 11, fontWeight: 'bold' }}>{t('btnCopyUpper') || 'KOPYALA'}</CustomText>
+                      </TouchableOpacity>
+                    </View>
+                  );
+                })
+              ) : (
+                <CustomText style={{ color: theme.muted, fontSize: 13, textAlign: 'center', padding: 20 }}>{t('pwHistoryEmpty')}</CustomText>
+              )}
+            </ScrollView>
+            <TouchableOpacity style={{marginTop: 10, alignItems: 'center'}} onPress={() => setHistoryVisible(false)}>
+              <CustomText style={{color: theme.muted, fontWeight: 'bold'}}>{t('btnClose')}</CustomText>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
     </Modal>
   );
 }
@@ -224,6 +303,11 @@ const getStyles = (theme) => StyleSheet.create({
   pwInput: { flex: 1, color: theme.text, padding: 12, fontSize: 15 },
   eyeBtn: { padding: 12, justifyContent: 'center', alignItems: 'center' },
   
+  historyBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.card, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, borderWidth: 1, borderColor: theme.border, gap: 6, marginBottom: 15, alignSelf: 'flex-start' },
+  historyBtnText: { color: theme.accent, fontSize: 11, fontWeight: 'bold' },
+  histItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.border2 },
+  copyHistBtn: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 4, borderWidth: 1, borderColor: theme.accent, backgroundColor: 'transparent' },
+
   deleteBtn: { marginTop: 20, padding: 15, borderRadius: 6, borderWidth: 1, borderColor: theme.red, alignItems: 'center' },
   deleteText: { color: theme.red, fontWeight: 'bold' },
   

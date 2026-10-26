@@ -23,9 +23,15 @@ const VaultCardItem = React.memo(function VaultCardItem({
       style={styles.card}
     >
       <View style={styles.cardHeader}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1 }}>
           {item.fav && <Feather name="star" size={13} color={theme.accent} style={{ marginRight: 2 }} />}
           <CustomText style={styles.cardTitle}>{item.site}</CustomText>
+          {item.reprompt && <Feather name="shield" size={12} color={theme.accent} style={{ marginLeft: 2 }} />}
+          {item.url && /^http:\/\//i.test(item.url.trim()) && (
+            <View style={{ backgroundColor: 'rgba(176, 112, 32, 0.15)', borderWidth: 1, borderColor: 'rgba(176, 112, 32, 0.4)', paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3, marginLeft: 4 }}>
+              <CustomText style={{ fontSize: 9, fontWeight: 'bold', color: theme.amber || '#b07020' }}>HTTP</CustomText>
+            </View>
+          )}
         </View>
         <CustomText style={styles.cardCategory}>{item.category || t('cat_other')}</CustomText>
       </View>
@@ -47,7 +53,7 @@ const VaultCardItem = React.memo(function VaultCardItem({
         <CustomText style={styles.label}>{t('fieldPassword')}</CustomText>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
           <TouchableOpacity 
-            onPress={() => onTogglePw(item.id)} 
+            onPress={() => onTogglePw(item)} 
             hitSlop={{top: 15, bottom: 15, left: 15, right: 15}} 
             style={{padding: 5}}
             activeOpacity={0.6}
@@ -58,7 +64,7 @@ const VaultCardItem = React.memo(function VaultCardItem({
           <TouchableOpacity 
             activeOpacity={0.6}
             delayPressIn={0}
-            onPress={() => onCopy(item.password, t('fieldPassword'))}
+            onPress={() => onCopy(item.password, t('fieldPassword'), item)}
           >
             <CustomText style={styles.value}>{isPwVisible ? (typeof item.password === 'object' ? memDecrypt(item.password) : item.password) : '••••••••'}</CustomText>
           </TouchableOpacity>
