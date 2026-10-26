@@ -2,6 +2,9 @@
   "name": "fuinmobile",
   "version": "1.0.0-beta.4",
   "main": "index.js",
+  "overrides": {
+    "shell-quote": "^1.12.0"
+  },
   "dependencies": {
     "@craftzdog/react-native-buffer": "^6.1.2",
     "@expo/metro-runtime": "~57.0.8",
@@ -43,7 +46,7 @@
   "scripts": {
     "start": "expo start",
     "lint": "node scripts/check-static.js",
-    "test": "node scripts/check-static.js && node -e \"const fs=require('fs'),cp=require('child_process');for(const f of ['test_session_security.js','test_app_flow.js','test_interop.js','test_security_phase6.js','test_sync_lan_mobile.js','test_bitwarden_features_mobile.js']){if(fs.existsSync(f))cp.execFileSync(process.execPath,[f],{stdio:'inherit'});}\"",
+    "test": "node scripts/check-static.js && node -e \"const fs=require('fs'),cp=require('child_process');for(const f of ['test_session_security.js','test_app_flow.js','test_interop.js','test_security_phase6.js','test_sync_lan_mobile.js','test_bitwarden_features_mobile.js','test_cryptographic_standards_mobile.js']){if(fs.existsSync(f))cp.execFileSync(process.execPath,[f],{stdio:'inherit'});}\"",
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
