@@ -76,6 +76,8 @@ export default function HealthModal({ visible, entries, onClose }) {
             onPress={onClose} 
             style={{ padding: 10, marginLeft: -10 }} 
             hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
+            activeOpacity={0.7}
+            delayPressIn={0}
           >
             <CustomText style={{ color: theme.text, fontSize: 28, lineHeight: 28 }}>×</CustomText>
           </TouchableOpacity>
@@ -83,7 +85,7 @@ export default function HealthModal({ visible, entries, onClose }) {
           <View style={{ width: 40 }} />
         </View>
 
-        <ScrollView style={{ flex: 1, padding: 20 }}>
+        <ScrollView style={{ flex: 1, padding: 20 }} keyboardShouldPersistTaps="handled">
           {/* Info Card */}
           <View style={{
             backgroundColor: theme.card,

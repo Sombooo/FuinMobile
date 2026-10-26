@@ -101,24 +101,24 @@ export default function EditModal({ visible, entry, allCategories, onClose, onSa
     <Modal visible={visible} animationType="slide" presentationStyle="formSheet" onRequestClose={onClose}>
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={onClose}>
+          <TouchableOpacity onPress={onClose} activeOpacity={0.7} delayPressIn={0}>
             <CustomText style={styles.cancelText}>{t('btnCancel')}</CustomText>
           </TouchableOpacity>
           <CustomText style={styles.headerTitle}>{entry ? (entry.isDeleted ? t('modalDeletedEntry') : t('modalEditEntry')) : t('modalNewEntry')}</CustomText>
-          <TouchableOpacity onPress={handleSave}>
+          <TouchableOpacity onPress={handleSave} activeOpacity={0.7} delayPressIn={0}>
             {!entry?.isDeleted && <CustomText style={styles.saveText}>{t('btnSave')}</CustomText>}
           </TouchableOpacity>
         </View>
 
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : null}>
-          <ScrollView contentContainerStyle={styles.content}>
+          <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
             <CustomText style={styles.label}>{t('fieldSite')}</CustomText>
             <CustomTextInput style={styles.input} value={site} onChangeText={setSite} placeholder={t('fieldSitePh')} placeholderTextColor={theme.border2} />
 
             <View style={styles.row}>
               <View style={{ flex: 1, marginRight: 15 }}>
                 <CustomText style={styles.label}>{t('fieldCategory')}</CustomText>
-                <TouchableOpacity style={styles.catPickerBtn} onPress={() => setCatVisible(true)}>
+                <TouchableOpacity style={styles.catPickerBtn} onPress={() => setCatVisible(true)} activeOpacity={0.7} delayPressIn={0}>
                   <CustomText style={{color: theme.text, fontSize: 15}}>{category}</CustomText>
                 </TouchableOpacity>
               </View>
@@ -133,20 +133,20 @@ export default function EditModal({ visible, entry, allCategories, onClose, onSa
 
             <View style={styles.rowBetween}>
               <CustomText style={styles.label}>{t('fieldPasswordLabel')}</CustomText>
-              <TouchableOpacity onPress={() => setGenVisible(true)} style={styles.genBtn}>
+              <TouchableOpacity onPress={() => setGenVisible(true)} style={styles.genBtn} activeOpacity={0.7} delayPressIn={0}>
                 <Feather name="key" size={14} color={theme.accent} />
                 <CustomText style={styles.genText}>{t('genPwTitle')}</CustomText>
               </TouchableOpacity>
             </View>
             <View style={styles.pwContainer}>
               <CustomTextInput style={styles.pwInput} value={password} onChangeText={setPassword} placeholderTextColor={theme.border2} autoCapitalize="none" secureTextEntry={!showPassword} />
-              <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeBtn} hitSlop={{top: 15, bottom: 15, left: 15, right: 15}}>
+              <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeBtn} hitSlop={{top: 15, bottom: 15, left: 15, right: 15}} activeOpacity={0.7} delayPressIn={0}>
                 <Feather name={showPassword ? "eye-off" : "eye"} size={20} color={theme.muted} />
               </TouchableOpacity>
             </View>
 
             {entry && !entry.isDeleted && (
-              <TouchableOpacity onPress={() => setHistoryVisible(true)} style={styles.historyBtn}>
+              <TouchableOpacity onPress={() => setHistoryVisible(true)} style={styles.historyBtn} activeOpacity={0.7} delayPressIn={0}>
                 <Feather name="clock" size={13} color={theme.accent} />
                 <CustomText style={styles.historyBtnText}>{t('btnPwHistory')} ({entry.history ? entry.history.length : 0})</CustomText>
               </TouchableOpacity>
@@ -182,7 +182,7 @@ export default function EditModal({ visible, entry, allCategories, onClose, onSa
             </View>
 
             {entry && !entry.isDeleted && (
-              <TouchableOpacity style={styles.deleteBtn} onPress={() => {
+              <TouchableOpacity style={styles.deleteBtn} activeOpacity={0.7} delayPressIn={0} onPress={() => {
                 showAlert(t('alertAreYouSure'), t('alertMoveToTrash'), [
                   { text: t('btnCancel'), style: 'cancel' },
                   { text: t('btnDelete'), style: 'destructive', onPress: () => onDelete(entry.id) }
@@ -194,10 +194,10 @@ export default function EditModal({ visible, entry, allCategories, onClose, onSa
 
             {entry && entry.isDeleted && (
               <View style={{flexDirection: 'column', gap: 10, marginTop: 20}}>
-                <TouchableOpacity style={[styles.deleteBtn, {backgroundColor: theme.accent, borderColor: theme.accent}]} onPress={() => onRestore(entry.id)}>
+                <TouchableOpacity style={[styles.deleteBtn, {backgroundColor: theme.accent, borderColor: theme.accent}]} activeOpacity={0.7} delayPressIn={0} onPress={() => onRestore(entry.id)}>
                   <CustomText style={[styles.deleteText, {color: theme.bg}]}>{t('btnRestoreEntry')}</CustomText>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.deleteBtn} onPress={() => {
+                <TouchableOpacity style={styles.deleteBtn} activeOpacity={0.7} delayPressIn={0} onPress={() => {
                   showAlert(t('alertPermanentDeleteTitle'), t('alertPermanentDeleteMsg'), [
                     { text: t('btnCancel'), style: 'cancel' },
                     { text: t('btnDelete'), style: 'destructive', onPress: () => onDelete(entry.id) }
@@ -217,15 +217,15 @@ export default function EditModal({ visible, entry, allCategories, onClose, onSa
         <View style={styles.catOverlay}>
           <View style={styles.catModal}>
             <CustomText style={styles.catTitle}>{t('selectCategoryTitle')}</CustomText>
-            <ScrollView style={{maxHeight: 250, marginVertical: 15}}>
+            <ScrollView style={{maxHeight: 250, marginVertical: 15}} keyboardShouldPersistTaps="handled">
               {allCategories && allCategories.map(c => (
-                <TouchableOpacity key={c} style={styles.catItem} onPress={() => { setCategory(c); setCatVisible(false); }}>
+                <TouchableOpacity key={c} style={styles.catItem} activeOpacity={0.7} delayPressIn={0} onPress={() => { setCategory(c); setCatVisible(false); }}>
                   <CustomText style={[styles.catItemText, category === c && {color: theme.accent}]}>{c}</CustomText>
                   {category === c && <CustomText style={{color: theme.accent}}>✓</CustomText>}
                 </TouchableOpacity>
               ))}
             </ScrollView>
-            <TouchableOpacity style={{marginTop: 20, alignItems: 'center'}} onPress={() => setCatVisible(false)}>
+            <TouchableOpacity style={{marginTop: 20, alignItems: 'center'}} activeOpacity={0.7} delayPressIn={0} onPress={() => setCatVisible(false)}>
               <CustomText style={{color: theme.muted}}>{t('btnClose')}</CustomText>
             </TouchableOpacity>
           </View>
@@ -236,7 +236,7 @@ export default function EditModal({ visible, entry, allCategories, onClose, onSa
         <View style={styles.catOverlay}>
           <View style={styles.catModal}>
             <CustomText style={styles.catTitle}>{t('pwHistoryTitle')}</CustomText>
-            <ScrollView style={{maxHeight: 280, marginVertical: 15}}>
+            <ScrollView style={{maxHeight: 280, marginVertical: 15}} keyboardShouldPersistTaps="handled">
               {entry?.history && entry.history.length > 0 ? (
                 entry.history.map((hist, idx) => {
                   const histPw = typeof hist.password === 'object' ? memDecrypt(hist.password) : hist.password;
@@ -252,6 +252,8 @@ export default function EditModal({ visible, entry, allCategories, onClose, onSa
                       </View>
                       <TouchableOpacity
                         style={styles.copyHistBtn}
+                        activeOpacity={0.7}
+                        delayPressIn={0}
                         onPress={async () => {
                           if (histPw) {
                             await copySecure(histPw, 45000);
@@ -268,7 +270,7 @@ export default function EditModal({ visible, entry, allCategories, onClose, onSa
                 <CustomText style={{ color: theme.muted, fontSize: 13, textAlign: 'center', padding: 20 }}>{t('pwHistoryEmpty')}</CustomText>
               )}
             </ScrollView>
-            <TouchableOpacity style={{marginTop: 10, alignItems: 'center'}} onPress={() => setHistoryVisible(false)}>
+            <TouchableOpacity style={{marginTop: 10, alignItems: 'center'}} activeOpacity={0.7} delayPressIn={0} onPress={() => setHistoryVisible(false)}>
               <CustomText style={{color: theme.muted, fontWeight: 'bold'}}>{t('btnClose')}</CustomText>
             </TouchableOpacity>
           </View>

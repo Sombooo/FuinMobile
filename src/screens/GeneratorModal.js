@@ -1,5 +1,5 @@
 import CustomText from '../components/CustomText';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, Modal, Switch, SafeAreaView, Platform, StatusBar, Animated, Alert } from 'react-native';
 import { useTheme } from '../theme';
 import * as Clipboard from 'expo-clipboard';
@@ -12,7 +12,7 @@ import { generatePassword } from '../services/passwordGenerator';
 
 export default function GeneratorModal({ visible, onClose, onApply }) {
   const { theme } = useTheme();
-  const styles = getStyles(theme);
+  const styles = useMemo(() => getStyles(theme), [theme]);
   const { t, lang } = useI18n();
   const { showAlert } = useAlert();
   const [length, setLength] = useState(16);
@@ -92,11 +92,11 @@ export default function GeneratorModal({ visible, onClose, onApply }) {
     <Modal visible={visible} animationType="slide" presentationStyle="formSheet" onRequestClose={onClose}>
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={onClose}>
+          <TouchableOpacity onPress={onClose} activeOpacity={0.7} delayPressIn={0}>
             <CustomText style={styles.cancelText}>{t('genCancel')}</CustomText>
           </TouchableOpacity>
           <CustomText style={styles.headerTitle}>{t('genTitle')}</CustomText>
-          <TouchableOpacity onPress={() => onApply(generatedPassword)}>
+          <TouchableOpacity onPress={() => onApply(generatedPassword)} activeOpacity={0.7} delayPressIn={0}>
             <CustomText style={styles.saveText}>{t('genApply')}</CustomText>
           </TouchableOpacity>
         </View>
@@ -105,10 +105,10 @@ export default function GeneratorModal({ visible, onClose, onApply }) {
           <View style={styles.resultBox}>
             <CustomText style={styles.pwdText} numberOfLines={1} ellipsizeMode="middle" selectable>{generatedPassword}</CustomText>
             <View style={styles.actionBox}>
-              <TouchableOpacity style={styles.iconBtn} onPress={copyToClipboard}>
+              <TouchableOpacity style={styles.iconBtn} onPress={copyToClipboard} activeOpacity={0.7} delayPressIn={0}>
                 <Feather name="copy" size={16} color={theme.text} />
               </TouchableOpacity>
-              <TouchableOpacity style={styles.iconBtn} onPress={generate}>
+              <TouchableOpacity style={styles.iconBtn} onPress={generate} activeOpacity={0.7} delayPressIn={0}>
                 <Animated.View style={{transform: [{rotate: spin}]}}>
                   <Feather name="refresh-cw" size={16} color={theme.text} />
                 </Animated.View>

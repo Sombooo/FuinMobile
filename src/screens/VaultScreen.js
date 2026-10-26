@@ -66,15 +66,17 @@ export default function VaultScreen({
 
   const switchTabSmooth = (nextTab) => {
     if (activeTab === nextTab) return;
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setActiveTab(nextTab);
   };
 
   const switchCategorySmooth = (nextCat) => {
     if (activeCategory === nextCat) return;
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setActiveCategory(nextCat);
   };
+
+  const editableCategories = useMemo(() => {
+    return allCategories.filter(c => c !== t('cat_all') && c !== t('cat_fav') && c !== t('cat_trash'));
+  }, [allCategories, t]);
   
   // Edit State
   const [modalVisible, setModalVisible] = useState(false);
@@ -393,7 +395,7 @@ export default function VaultScreen({
             {activeTab === 'vault' ? t('navVault') : (activeTab === 'settings' ? t('navSettings') : t('navTools'))}
           </CustomText>
         </View>
-        <TouchableOpacity onPress={onLogout}>
+        <TouchableOpacity onPress={onLogout} activeOpacity={0.7} delayPressIn={0}>
           <CustomText style={styles.logoutText}>{t('btnLogout')}</CustomText>
         </TouchableOpacity>
       </View>
@@ -404,12 +406,19 @@ export default function VaultScreen({
           <>
             {/* Categories Scroll */}
             <View style={styles.categoriesWrapper}>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoriesScroll}>
+              <ScrollView 
+                horizontal 
+                showsHorizontalScrollIndicator={false} 
+                contentContainerStyle={styles.categoriesScroll}
+                keyboardShouldPersistTaps="handled"
+              >
                 {allCategories.map(cat => (
                   <TouchableOpacity 
                     key={cat} 
                     style={[styles.categoryBtn, activeCategory === cat && styles.categoryBtnActive]}
                     onPress={() => switchCategorySmooth(cat)}
+                    activeOpacity={0.7}
+                    delayPressIn={0}
                   >
                     <CustomText style={[styles.categoryText, activeCategory === cat && styles.categoryTextActive]}>
                       {cat}
@@ -427,18 +436,22 @@ export default function VaultScreen({
                 placeholderTextColor={theme.muted}
                 value={searchQuery}
                 onChangeText={setSearchQuery}
+                clearButtonMode="while-editing"
               />
             </View>
 
             {/* List */}
             <FlatList
               data={filteredEntries}
-              keyExtractor={(item) => item.id || Math.random().toString()}
+              keyExtractor={(item, index) => item.id || String(index)}
               renderItem={renderItem}
               contentContainerStyle={styles.listContainer}
-              initialNumToRender={12}
-              maxToRenderPerBatch={10}
-              windowSize={7}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              initialNumToRender={10}
+              maxToRenderPerBatch={8}
+              windowSize={5}
+              updateCellsBatchingPeriod={50}
               removeClippedSubviews={Platform.OS === 'android'}
               ListEmptyComponent={
                 <View style={styles.emptyWrap}>
@@ -460,7 +473,7 @@ export default function VaultScreen({
         ) : null}
         
         {activeTab === 'tools' && (
-          <ScrollView style={styles.settingsWrap}>
+          <ScrollView style={styles.settingsWrap} keyboardShouldPersistTaps="handled">
 
             
             {/* Old JSON block removed */}
@@ -629,7 +642,7 @@ export default function VaultScreen({
         )}
 
         {activeTab === 'settings' && (
-          <ScrollView style={styles.settingsWrap}>
+          <ScrollView style={styles.settingsWrap} keyboardShouldPersistTaps="handled">
 
 
             <CustomText style={[styles.settingsTitle, {fontSize: 14, color: theme.muted, marginTop: 10}]}>{t('themeTitle')}</CustomText>
@@ -763,7 +776,7 @@ export default function VaultScreen({
       <EditModal 
         visible={modalVisible} 
         entry={selectedEntry}
-        allCategories={allCategories.filter(c => c !== t('cat_all') && c !== t('cat_fav') && c !== t('cat_trash'))}
+        allCategories={editableCategories}
         onClose={() => setModalVisible(false)} 
         onSave={handleSaveEntry} 
         onDelete={handleDeleteEntry} 
@@ -778,7 +791,7 @@ export default function VaultScreen({
 
       {/* Bottom Navigation Bar */}
       <View style={[styles.bottomBar, { paddingBottom: insets.bottom || 20 }]}>
-        <TouchableOpacity style={styles.navBtn} onPress={() => switchTabSmooth('vault')}>
+        <TouchableOpacity style={styles.navBtn} onPress={() => switchTabSmooth('vault')} activeOpacity={0.7} delayPressIn={0}>
           <Svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={activeTab === 'vault' ? theme.accent : theme.muted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <Path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
             <Polyline points="9 22 9 12 15 12 15 22" />
@@ -788,6 +801,8 @@ export default function VaultScreen({
 
         <TouchableOpacity 
           style={styles.navBtn} 
+          activeOpacity={0.7}
+          delayPressIn={0}
           onPress={() => {
             if (!pairingInfo) {
               showAlert(
@@ -809,12 +824,12 @@ export default function VaultScreen({
           </CustomText>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.navBtn} onPress={() => switchTabSmooth('tools')}>
+        <TouchableOpacity style={styles.navBtn} onPress={() => switchTabSmooth('tools')} activeOpacity={0.7} delayPressIn={0}>
           <Feather name="tool" size={22} color={activeTab === 'tools' ? theme.accent : theme.muted} />
           <CustomText style={[styles.navText, activeTab === 'tools' && styles.navTextActive]}>{t('tabTools')}</CustomText>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.navBtn} onPress={() => switchTabSmooth('settings')}>
+        <TouchableOpacity style={styles.navBtn} onPress={() => switchTabSmooth('settings')} activeOpacity={0.7} delayPressIn={0}>
           <Svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={activeTab === 'settings' ? theme.accent : theme.muted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <Circle cx="12" cy="12" r="3" />
             <Path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
@@ -831,13 +846,15 @@ export default function VaultScreen({
               onPress={() => setBackupModalVisible(false)} 
               style={{ padding: 10, marginLeft: -10 }} 
               hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
+              activeOpacity={0.7}
+              delayPressIn={0}
             >
               <CustomText style={{ color: theme.text, fontSize: 28, lineHeight: 28 }}>×</CustomText>
             </TouchableOpacity>
             <CustomText style={{ flex: 1, textAlign: 'center', color: theme.text, fontSize: 16, fontWeight: 'bold', letterSpacing: 2 }}>{t('backupModalTitle')}</CustomText>
             <View style={{ width: 40 }} />
           </View>
-          <ScrollView style={{ flex: 1, padding: 20 }}>
+          <ScrollView style={{ flex: 1, padding: 20 }} keyboardShouldPersistTaps="handled">
             <CustomText style={{ color: theme.muted, fontSize: 13, marginBottom: 20, lineHeight: 20 }}>
               {t('backupModalDesc')}
             </CustomText>

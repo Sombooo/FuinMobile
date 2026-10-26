@@ -1,6 +1,6 @@
 import CustomTextInput from '../components/CustomTextInput';
 import CustomText from '../components/CustomText';
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { StyleSheet, Text, View, TextInput, TouchableOpacity, SafeAreaView, KeyboardAvoidingView, Platform, StatusBar, Alert, Modal } from 'react-native';
 import Svg, { Polygon } from 'react-native-svg';
 import { useTheme } from '../theme';
@@ -13,7 +13,7 @@ import { Buffer } from '@craftzdog/react-native-buffer';
 
 export default function LockScreen({ password, setPassword, onLogin, onSync, onCreateVault, onVaultErased, hasVault, syncMode }) {
   const { theme, themeMode } = useTheme();
-  const styles = getStyles(theme);
+  const styles = useMemo(() => getStyles(theme), [theme]);
   const toast = useToast();
   const { showAlert } = useAlert();
   const { t } = useI18n();
@@ -176,6 +176,7 @@ export default function LockScreen({ password, setPassword, onLogin, onSync, onC
                 style={styles.eyeBtn}
                 onPress={() => setIsPasswordVisible(!isPasswordVisible)}
                 activeOpacity={0.7}
+                delayPressIn={0}
               >
                 <View style={[styles.dotIcon, isPasswordVisible && { backgroundColor: theme.text }]} />
               </TouchableOpacity>
@@ -199,6 +200,7 @@ export default function LockScreen({ password, setPassword, onLogin, onSync, onC
                     style={styles.eyeBtn}
                     onPress={() => setIsConfirmVisible(!isConfirmVisible)}
                     activeOpacity={0.7}
+                    delayPressIn={0}
                   >
                     <View style={[styles.dotIcon, isConfirmVisible && { backgroundColor: theme.text }]} />
                   </TouchableOpacity>
@@ -210,16 +212,16 @@ export default function LockScreen({ password, setPassword, onLogin, onSync, onC
           {/* Buttons */}
           <View style={styles.buttonGroup}>
             {hasVault ? (
-              <TouchableOpacity style={styles.btnPrimary} onPress={() => onLogin(password)} activeOpacity={0.8}>
+              <TouchableOpacity style={styles.btnPrimary} onPress={() => onLogin(password)} activeOpacity={0.8} delayPressIn={0}>
                 <CustomText style={styles.btnPrimaryText}>{t('lockUnlockBtn')}</CustomText>
               </TouchableOpacity>
             ) : (
-              <TouchableOpacity style={styles.btnPrimary} onPress={handleCreate} activeOpacity={0.8}>
+              <TouchableOpacity style={styles.btnPrimary} onPress={handleCreate} activeOpacity={0.8} delayPressIn={0}>
                 <CustomText style={styles.btnPrimaryText}>{t('lockCreateVaultBtn')}</CustomText>
               </TouchableOpacity>
             )}
 
-            <TouchableOpacity style={styles.btnSecondary} onPress={onSync} activeOpacity={0.8}>
+            <TouchableOpacity style={styles.btnSecondary} onPress={onSync} activeOpacity={0.8} delayPressIn={0}>
               <CustomText style={styles.btnSecondaryText}>
                 {t('lockLanSyncBtn') || 'YEREL AĞ İLE EŞİTLE'}
               </CustomText>
@@ -229,10 +231,10 @@ export default function LockScreen({ password, setPassword, onLogin, onSync, onC
           {/* Erase / Forgot Password */}
           {hasVault && (
             <View style={styles.forgotContainer}>
-              <TouchableOpacity style={styles.btnForgot} onPress={() => setRecoveryModalVisible(true)}>
+              <TouchableOpacity style={styles.btnForgot} onPress={() => setRecoveryModalVisible(true)} activeOpacity={0.7} delayPressIn={0}>
                 <CustomText style={styles.btnForgotText}>{t('lockForgot')}</CustomText>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.btnForgot} onPress={handleErase}>
+              <TouchableOpacity style={styles.btnForgot} onPress={handleErase} activeOpacity={0.7} delayPressIn={0}>
                 <CustomText style={[styles.btnForgotText, { color: theme.red, textDecorationLine: 'underline', textDecorationColor: theme.red }]}>{t('lockHardReset')}</CustomText>
               </TouchableOpacity>
             </View>
