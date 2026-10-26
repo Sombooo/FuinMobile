@@ -146,7 +146,11 @@
       if (!entry || typeof entry !== 'object') return entry;
       return Object.assign({}, entry, {
         password: memEncrypt(entry.password),
-        totp: memEncrypt(entry.totp)
+        totp: memEncrypt(entry.totp),
+        history: Array.isArray(entry.history) ? entry.history.map(function (h) {
+          if (!h || typeof h !== 'object') return h;
+          return Object.assign({}, h, { password: memEncrypt(h.password) });
+        }) : []
       });
     });
   }
@@ -157,7 +161,11 @@
       if (!entry || typeof entry !== 'object') return entry;
       return Object.assign({}, entry, {
         password: memDecrypt(entry.password),
-        totp: memDecrypt(entry.totp)
+        totp: memDecrypt(entry.totp),
+        history: Array.isArray(entry.history) ? entry.history.map(function (h) {
+          if (!h || typeof h !== 'object') return h;
+          return Object.assign({}, h, { password: memDecrypt(h.password) });
+        }) : []
       });
     });
   }

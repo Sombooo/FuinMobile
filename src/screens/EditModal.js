@@ -75,7 +75,7 @@ export default function EditModal({ visible, entry, allCategories, onClose, onSa
     const oldPassword = entry && entry.password ? (typeof entry.password === 'object' ? memDecrypt(entry.password) : entry.password) : null;
     if (entry && oldPassword && oldPassword !== password) {
       history.unshift({
-        password: entry.password,
+        password: oldPassword,
         date: now
       });
       if (history.length > 5) {
@@ -145,10 +145,10 @@ export default function EditModal({ visible, entry, allCategories, onClose, onSa
               </TouchableOpacity>
             </View>
 
-            {entry && Array.isArray(entry.history) && entry.history.length > 0 && (
+            {entry && !entry.isDeleted && (
               <TouchableOpacity onPress={() => setHistoryVisible(true)} style={styles.historyBtn}>
                 <Feather name="clock" size={13} color={theme.accent} />
-                <CustomText style={styles.historyBtnText}>{t('btnPwHistory')} ({entry.history.length})</CustomText>
+                <CustomText style={styles.historyBtnText}>{t('btnPwHistory')} ({entry.history ? entry.history.length : 0})</CustomText>
               </TouchableOpacity>
             )}
 
