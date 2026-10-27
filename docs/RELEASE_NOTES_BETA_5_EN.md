@@ -34,3 +34,6 @@ Check the SHA-256 integrity of your download:
 ```bash
 shasum -a 256 -c SHA256SUMS.txt
 ```
+
+---
+*Security reports:* [hellofuin@gmail.com](mailto:hellofuin@gmail.com) · *Repository:* [github.com/Sombooo/FuinMobile](https://github.com/Sombooo/FuinMobile)
