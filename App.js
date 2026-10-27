@@ -117,6 +117,7 @@ function AppInner() {
   const [sharedEntryData, setSharedEntryData] = useState(null);
 
   useEffect(() => {
+    // Ekran koruması: FLAG_SECURE ve ekran görüntüsü/kaydı engelleme varsayılan olarak açıktır.
     ScreenCapture.preventScreenCaptureAsync().catch(console.warn);
   }, []);
 

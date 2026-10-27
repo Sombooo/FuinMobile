@@ -61,9 +61,7 @@ I created **Fuin Mobile** to work either as a standalone local vault on your pho
 ## ✨ Features
 
 - **Offline Vault:** Your passwords stay encrypted on your phone's local storage.
-- **Two Local Sync Modes:**
-  - **Wi-Fi LAN Sync:** Pair once with Fuin Desktop via QR code, then sync changes two-way over your home Wi-Fi using **XChaCha20-Poly1305** encrypted packets.
-  - **Air-Gap QR Sync:** Scan animated QR codes from your computer screen to sync completely offline without touching any network.
+- **Private P2P Sync:** Pair once with Fuin Desktop via an optical QR code, then sync changes two-way over your local Wi-Fi or phone hotspot using **XChaCha20-Poly1305** encrypted packets with zero cloud relay.
 - **Built-in 2FA (TOTP):** Generate 30-second 6-digit verification codes right inside your vault entries.
 - **Biometric Unlock:** Unlock your vault quickly using Fingerprint or Face ID alongside your master password.
 - **Password Health & Breach Check:** Check your passwords for weak or reused entries locally, or scan against known data breaches using HaveIBeenPwned's k-Anonymity range API.
