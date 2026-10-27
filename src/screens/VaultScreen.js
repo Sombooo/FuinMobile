@@ -757,7 +757,7 @@ export default function VaultScreen({
 
             <CustomText style={[styles.settingsTitle, {fontSize: 14, color: theme.muted, marginTop: 10}]}>{t('sysSecurityTitle')}</CustomText>
             <View style={styles.settingsCard}>
-              <CustomText style={{color: theme.text, fontSize: 14, fontWeight: 'bold'}}>FuinMobile v1.0.0</CustomText>
+              <CustomText style={{color: theme.text, fontSize: 14, fontWeight: 'bold'}}>Fuin Mobile v1.0.0-beta.5</CustomText>
               <CustomText style={{color: theme.muted, fontSize: 12, marginTop: 4}}>{t('sysLocalVaultActive')}</CustomText>
               
               <View style={{height: 1, backgroundColor: theme.border, marginVertical: 10}} />
