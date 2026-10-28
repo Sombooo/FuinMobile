@@ -67,9 +67,21 @@ export const autofillService = {
             });
           }
 
+          const rawTitle = String(e.site || e.name || e.title || '');
+          if (!domain && rawTitle.includes('.')) {
+            try {
+              const u = rawTitle.startsWith('http') ? rawTitle : `https://${rawTitle}`;
+              const guessedDomain = u.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0].split(':')[0];
+              if (guessedDomain && !urls.includes(guessedDomain)) {
+                domain = guessedDomain;
+                urls.push(guessedDomain);
+              }
+            } catch (_) {}
+          }
+
           return {
             id: String(e.id || ''),
-            title: String(e.name || e.title || domain || ''),
+            title: rawTitle || domain || '',
             username: String(e.username || e.login || e.email || ''),
             password: String(e.password || ''),
             domain: domain,

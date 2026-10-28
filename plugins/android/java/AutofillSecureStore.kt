@@ -23,6 +23,8 @@ object AutofillSecureStore {
     private const val KEY_UNLOCKED_UNTIL = "unlocked_until_ts"
     private const val DEFAULT_TIMEOUT_MINUTES = 15L
 
+    private val STOP_WORDS = setOf("com", "net", "org", "app", "android", "mobile", "io", "co", "tr", "uk", "de", "fr", "en")
+
     private fun getPrefs(context: Context): SharedPreferences {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     }
@@ -97,12 +99,22 @@ object AutofillSecureStore {
         return list
     }
 
+    fun extractTokens(text: String?): Set<String> {
+        if (text.isNullOrBlank()) return emptySet()
+        return text.lowercase()
+            .replace(Regex("^https?://"), "")
+            .replace(Regex("^www\\."), "")
+            .split(Regex("[\\.\\s_\\-:/]+"))
+            .filter { it.length >= 3 && !STOP_WORDS.contains(it) }
+            .toSet()
+    }
+
     fun findMatches(context: Context, webDomain: String?, packageName: String?): List<AutofillVaultEntry> {
         val all = getAllEntries(context)
         if (all.isEmpty()) return emptyList()
 
         val cleanDomain = webDomain?.let { AutofillStructureParser.normalizeDomain(it) }
-        val cleanPkg = packageName?.lowercase()?.trim()
+        val pkgTokens = extractTokens(packageName)
 
         val exactMatches = mutableListOf<AutofillVaultEntry>()
         val looseMatches = mutableListOf<AutofillVaultEntry>()
@@ -112,7 +124,7 @@ object AutofillSecureStore {
             val entryUrls = entry.urls.map { AutofillStructureParser.normalizeDomain(it) }
 
             // 1. Direct Web Domain Match
-            if (cleanDomain != null) {
+            if (cleanDomain != null && cleanDomain.isNotEmpty()) {
                 if (entryDomain.isNotEmpty() && isDomainMatch(cleanDomain, entryDomain)) {
                     exactMatches.add(entry)
                     continue
@@ -123,11 +135,28 @@ object AutofillSecureStore {
                 }
             }
 
-            // 2. Package Name Match (for Android Native Apps)
-            if (cleanPkg != null && cleanPkg.isNotEmpty()) {
-                // If package contains entry title or domain keyword (e.g. com.twitter.android contains "twitter")
-                val keyword = if (entryDomain.isNotEmpty()) entryDomain.split(".")[0] else entry.title.lowercase().trim()
-                if (keyword.length >= 3 && cleanPkg.contains(keyword)) {
+            // 2. App Package / Title / URL Token Match (e.g. com.chess matches chess.com)
+            if (pkgTokens.isNotEmpty()) {
+                val entryTokens = mutableSetOf<String>()
+                entryTokens.addAll(extractTokens(entry.title))
+                entryTokens.addAll(extractTokens(entry.domain))
+                entry.urls.forEach { entryTokens.addAll(extractTokens(it)) }
+
+                val hasTokenMatch = pkgTokens.any { pt ->
+                    entryTokens.any { et -> pt == et || pt.contains(et) || et.contains(pt) }
+                }
+
+                if (hasTokenMatch) {
+                    exactMatches.add(entry)
+                    continue
+                }
+            }
+
+            // 3. Fallback: Title contains package or package contains title keyword
+            val cleanTitle = entry.title.lowercase().trim()
+            if (cleanTitle.length >= 3 && packageName != null) {
+                val simpleTitle = cleanTitle.split(".")[0]
+                if (simpleTitle.length >= 3 && packageName.lowercase().contains(simpleTitle)) {
                     looseMatches.add(entry)
                     continue
                 }

@@ -40,33 +40,76 @@ class FuinAutofillService : AutofillService() {
 
         val usernameField = parsed.usernameField
         val passwordField = parsed.passwordField
+        val primaryField = usernameField ?: passwordField ?: parsed.focusedField ?: parsed.fields.firstOrNull()
 
-        // If neither username nor password field exists on page, skip
-        if (usernameField == null && passwordField == null) {
+        // If no fillable field was detected anywhere, skip
+        if (primaryField == null) {
             callback.onSuccess(null)
             return
         }
 
-        val matchingEntries = AutofillSecureStore.findMatches(this, parsed.webDomain, parsed.packageName)
+        var matchingEntries = AutofillSecureStore.findMatches(this, parsed.webDomain, parsed.packageName)
+        val allEntries = AutofillSecureStore.getAllEntries(this)
+
+        // Bitwarden-grade fallback: If no exact package/domain match is found, show vault accounts so user is never stranded
+        if (matchingEntries.isEmpty() && allEntries.isNotEmpty()) {
+            matchingEntries = allEntries.take(8)
+        }
+
+        val responseBuilder = FillResponse.Builder()
+
+        // If vault is completely unpopulated in native cache, provide a direct prompt to open Fuin and unlock/sync
         if (matchingEntries.isEmpty()) {
+            val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+            if (launchIntent != null) {
+                try {
+                    val pendingIntent = PendingIntent.getActivity(
+                        this,
+                        1001,
+                        launchIntent,
+                        PendingIntent.FLAG_CANCEL_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                    )
+                    val presentation = RemoteViews(packageName, R.layout.autofill_auth_item).apply {
+                        setTextViewText(R.id.autofill_auth_title, "Fuin")
+                        setTextViewText(R.id.autofill_auth_subtitle, "Kayıtları eşitlemek için Fuin'i açın")
+                    }
+                    val datasetBuilder = Dataset.Builder(presentation)
+                    datasetBuilder.setAuthentication(pendingIntent.intentSender)
+                    datasetBuilder.setValue(primaryField.autofillId, AutofillValue.forText(""), presentation)
+                    responseBuilder.addDataset(datasetBuilder.build())
+                    callback.onSuccess(responseBuilder.build())
+                    return
+                } catch (e: Exception) {
+                    callback.onSuccess(null)
+                    return
+                }
+            }
             callback.onSuccess(null)
             return
         }
 
         val isSessionUnlocked = AutofillSecureStore.isSessionUnlocked(this)
-        val responseBuilder = FillResponse.Builder()
+        var datasetsAdded = 0
 
         for (entry in matchingEntries) {
             val requiresAuth = !isSessionUnlocked || entry.reprompt
+            val title = entry.title.ifEmpty { entry.domain.ifEmpty { "Fuin" } }
+
+            val targetField = when {
+                usernameField != null && entry.username.isNotEmpty() -> usernameField
+                passwordField != null && entry.password.isNotEmpty() -> passwordField
+                else -> primaryField
+            }
 
             if (!requiresAuth) {
                 // Unlocked & No Reprompt: Direct Instant Fill
                 val presentation = RemoteViews(packageName, R.layout.autofill_dataset_item).apply {
-                    setTextViewText(R.id.autofill_title, entry.title.ifEmpty { entry.domain.ifEmpty { "Fuin" } })
+                    setTextViewText(R.id.autofill_title, title)
                     setTextViewText(R.id.autofill_subtitle, entry.username.ifEmpty { "••••••••" })
                 }
 
-                val datasetBuilder = Dataset.Builder()
+                val datasetBuilder = Dataset.Builder(presentation)
+
                 if (usernameField != null && entry.username.isNotEmpty()) {
                     datasetBuilder.setValue(
                         usernameField.autofillId,
@@ -81,16 +124,24 @@ class FuinAutofillService : AutofillService() {
                         presentation
                     )
                 }
+                if (primaryField != null && primaryField != usernameField && primaryField != passwordField) {
+                    val fallbackVal = if (entry.username.isNotEmpty()) entry.username else entry.password
+                    datasetBuilder.setValue(
+                        primaryField.autofillId,
+                        AutofillValue.forText(fallbackVal),
+                        presentation
+                    )
+                }
 
                 try {
                     responseBuilder.addDataset(datasetBuilder.build())
+                    datasetsAdded++
                 } catch (e: Exception) {
                     // Ignore dataset build issue
                 }
             } else {
                 // Locked OR Reprompt Required: Authenticated Fill
                 val presentation = RemoteViews(packageName, R.layout.autofill_auth_item).apply {
-                    val title = entry.title.ifEmpty { entry.domain.ifEmpty { "Fuin" } }
                     setTextViewText(R.id.autofill_auth_title, "Fuin • $title")
                     val sub = if (entry.reprompt) "Doğrulama gerekli" else "Şifreyi doldurmak için dokunun"
                     setTextViewText(R.id.autofill_auth_subtitle, sub)
@@ -100,6 +151,7 @@ class FuinAutofillService : AutofillService() {
                     putExtra("EXTRA_ENTRY_ID", entry.id)
                     usernameField?.let { putExtra("EXTRA_USERNAME_ID", it.autofillId) }
                     passwordField?.let { putExtra("EXTRA_PASSWORD_ID", it.autofillId) }
+                    primaryField?.let { putExtra("EXTRA_PRIMARY_ID", it.autofillId) }
                 }
 
                 val requestCode = (entry.id.hashCode() and 0x7FFFFFFF)
@@ -113,15 +165,20 @@ class FuinAutofillService : AutofillService() {
                 val datasetBuilder = Dataset.Builder(presentation)
                 datasetBuilder.setAuthentication(pendingIntent.intentSender)
 
-                if (usernameField != null) {
-                    datasetBuilder.setValue(usernameField.autofillId, AutofillValue.forText(entry.username))
+                if (usernameField != null && entry.username.isNotEmpty()) {
+                    datasetBuilder.setValue(usernameField.autofillId, AutofillValue.forText(entry.username), presentation)
                 }
-                if (passwordField != null) {
-                    datasetBuilder.setValue(passwordField.autofillId, AutofillValue.forText(entry.password))
+                if (passwordField != null && entry.password.isNotEmpty()) {
+                    datasetBuilder.setValue(passwordField.autofillId, AutofillValue.forText(entry.password), presentation)
+                }
+                if (primaryField != null && primaryField != usernameField && primaryField != passwordField) {
+                    val fallbackVal = if (entry.username.isNotEmpty()) entry.username else entry.password
+                    datasetBuilder.setValue(primaryField.autofillId, AutofillValue.forText(fallbackVal), presentation)
                 }
 
                 try {
                     responseBuilder.addDataset(datasetBuilder.build())
+                    datasetsAdded++
                 } catch (e: Exception) {
                     // Ignore dataset build issue
                 }
@@ -141,18 +198,15 @@ class FuinAutofillService : AutofillService() {
             responseBuilder.setSaveInfo(saveInfo)
         }
 
+        if (datasetsAdded == 0 && saveFields.isEmpty()) {
+            callback.onSuccess(null)
+            return
+        }
+
         callback.onSuccess(responseBuilder.build())
     }
 
     override fun onSaveRequest(request: SaveRequest, callback: SaveCallback) {
-        val fillContexts = request.fillContexts
-        if (fillContexts.isNotEmpty()) {
-            val latestStructure = fillContexts.last().structure
-            val parsed = AutofillStructureParser.parse(latestStructure)
-
-            // Extract entered username / password for potential notification or Fuin save prompt
-            val clientState = request.clientState
-        }
         callback.onSuccess()
     }
 }

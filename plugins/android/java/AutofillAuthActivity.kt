@@ -25,6 +25,7 @@ class AutofillAuthActivity : AppCompatActivity() {
     private var targetEntryId: String? = null
     private var usernameAutofillId: AutofillId? = null
     private var passwordAutofillId: AutofillId? = null
+    private var primaryAutofillId: AutofillId? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -36,6 +37,7 @@ class AutofillAuthActivity : AppCompatActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             usernameAutofillId = intent.getParcelableExtra("EXTRA_USERNAME_ID")
             passwordAutofillId = intent.getParcelableExtra("EXTRA_PASSWORD_ID")
+            primaryAutofillId = intent.getParcelableExtra("EXTRA_PRIMARY_ID")
         }
 
         val btnCancel = findViewById<Button>(R.id.btn_cancel_auth)
@@ -64,34 +66,38 @@ class AutofillAuthActivity : AppCompatActivity() {
     }
 
     private fun tryBiometricPrompt() {
-        val biometricManager = BiometricManager.from(this)
-        val authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL
-        val canAuthenticate = biometricManager.canAuthenticate(authenticators)
+        try {
+            val biometricManager = BiometricManager.from(this)
+            val authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL
+            val canAuthenticate = biometricManager.canAuthenticate(authenticators)
 
-        if (canAuthenticate == BiometricManager.BIOMETRIC_SUCCESS) {
-            val promptInfo = BiometricPrompt.PromptInfo.Builder()
-                .setTitle("Fuin Kasasını Aç")
-                .setSubtitle("Şifreyi doldurmak için kimliğinizi doğrulayın")
-                .setAllowedAuthenticators(authenticators)
-                .build()
+            if (canAuthenticate == BiometricManager.BIOMETRIC_SUCCESS) {
+                val promptInfo = BiometricPrompt.PromptInfo.Builder()
+                    .setTitle("Fuin Kasasını Aç")
+                    .setSubtitle("Şifreyi doldurmak için kimliğinizi doğrulayın")
+                    .setAllowedAuthenticators(authenticators)
+                    .build()
 
-            val biometricPrompt = BiometricPrompt(this, executor, object : BiometricPrompt.AuthenticationCallback() {
-                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                    super.onAuthenticationSucceeded(result)
-                    this@AutofillAuthActivity.onAuthenticationSucceeded()
-                }
+                val biometricPrompt = BiometricPrompt(this, executor, object : BiometricPrompt.AuthenticationCallback() {
+                    override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                        super.onAuthenticationSucceeded(result)
+                        this@AutofillAuthActivity.onAuthenticationSucceeded()
+                    }
 
-                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-                    super.onAuthenticationError(errorCode, errString)
-                    // If user cancelled, fall back to dialog password input
-                }
+                    override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                        super.onAuthenticationError(errorCode, errString)
+                        // If user cancelled, dialog password input remains visible
+                    }
 
-                override fun onAuthenticationFailed() {
-                    super.onAuthenticationFailed()
-                }
-            })
+                    override fun onAuthenticationFailed() {
+                        super.onAuthenticationFailed()
+                    }
+                })
 
-            biometricPrompt.authenticate(promptInfo)
+                biometricPrompt.authenticate(promptInfo)
+            }
+        } catch (e: Exception) {
+            // Biometric not available, dialog password input fallback
         }
     }
 
@@ -102,25 +108,33 @@ class AutofillAuthActivity : AppCompatActivity() {
             val allEntries = AutofillSecureStore.getAllEntries(this)
             val matchedEntry = allEntries.firstOrNull { it.id == targetEntryId } ?: allEntries.firstOrNull()
 
-            if (matchedEntry != null && (usernameAutofillId != null || passwordAutofillId != null)) {
+            val primaryId = usernameAutofillId ?: passwordAutofillId ?: primaryAutofillId
+
+            if (matchedEntry != null && primaryId != null) {
                 val presentation = RemoteViews(packageName, R.layout.autofill_dataset_item).apply {
                     setTextViewText(R.id.autofill_title, matchedEntry.title.ifEmpty { matchedEntry.domain })
-                    setTextViewText(R.id.autofill_subtitle, matchedEntry.username)
+                    setTextViewText(R.id.autofill_subtitle, matchedEntry.username.ifEmpty { "••••••••" })
                 }
 
                 val datasetBuilder = android.service.autofill.Dataset.Builder()
-                if (usernameAutofillId != null && matchedEntry.username.isNotEmpty()) {
+
+                val targetVal = if (primaryId == passwordAutofillId) {
+                    AutofillValue.forText(matchedEntry.password)
+                } else {
+                    AutofillValue.forText(matchedEntry.username.ifEmpty { matchedEntry.password })
+                }
+                datasetBuilder.setValue(primaryId, targetVal, presentation)
+
+                if (usernameAutofillId != null && usernameAutofillId != primaryId && matchedEntry.username.isNotEmpty()) {
                     datasetBuilder.setValue(
                         usernameAutofillId!!,
-                        AutofillValue.forText(matchedEntry.username),
-                        presentation
+                        AutofillValue.forText(matchedEntry.username)
                     )
                 }
-                if (passwordAutofillId != null && matchedEntry.password.isNotEmpty()) {
+                if (passwordAutofillId != null && passwordAutofillId != primaryId && matchedEntry.password.isNotEmpty()) {
                     datasetBuilder.setValue(
                         passwordAutofillId!!,
-                        AutofillValue.forText(matchedEntry.password),
-                        presentation
+                        AutofillValue.forText(matchedEntry.password)
                     )
                 }
 
