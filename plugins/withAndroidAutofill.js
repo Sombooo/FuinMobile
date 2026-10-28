@@ -1,9 +1,25 @@
-const { withAndroidManifest, withDangerousMod, withAndroidStyles } = require('@expo/config-plugins');
+const {
+  withAndroidManifest,
+  withDangerousMod,
+  withAndroidStyles,
+  withAppBuildGradle,
+} = require('@expo/config-plugins');
 const fs = require('fs');
 const path = require('path');
 
 const withAndroidAutofill = (config) => {
-  // 1. Copy files in dangerous mod during prebuild
+  // 1. Inject androidx.biometric dependency into app/build.gradle
+  config = withAppBuildGradle(config, (config) => {
+    if (!config.modResults.contents.includes('androidx.biometric:biometric')) {
+      config.modResults.contents = config.modResults.contents.replace(
+        /dependencies\s*\{/,
+        'dependencies {\n    implementation("androidx.biometric:biometric:1.2.0-alpha05")'
+      );
+    }
+    return config;
+  });
+
+  // 2. Copy files in dangerous mod during prebuild
   config = withDangerousMod(config, [
     'android',
     async (config) => {
@@ -61,6 +77,19 @@ const withAndroidAutofill = (config) => {
           });
         }
 
+        // Copy Values
+        const srcValues = path.join(pluginAndroidDir, 'res', 'values');
+        const targetValues = path.join(targetResDir, 'values');
+        if (fs.existsSync(srcValues)) {
+          fs.mkdirSync(targetValues, { recursive: true });
+          fs.readdirSync(srcValues).forEach((f) => {
+            const targetF = path.join(targetValues, f);
+            if (!fs.existsSync(targetF)) {
+              fs.copyFileSync(path.join(srcValues, f), targetF);
+            }
+          });
+        }
+
         // Ensure MainApplication registers FuinAutofillPackage
         const mainAppFile = path.join(targetJavaDir, 'MainApplication.kt');
         if (fs.existsSync(mainAppFile)) {
@@ -78,7 +107,7 @@ const withAndroidAutofill = (config) => {
     },
   ]);
 
-  // 2. Inject Theme.AutofillDialog into styles.xml
+  // 3. Inject Theme.AutofillDialog into styles.xml
   config = withAndroidStyles(config, (config) => {
     try {
       if (!config.modResults.resources) {
@@ -107,7 +136,7 @@ const withAndroidAutofill = (config) => {
     return config;
   });
 
-  // 3. Android Manifest registration
+  // 4. Android Manifest registration
   return withAndroidManifest(config, (config) => {
     const mainApplication = config.modResults.manifest.application[0];
 
