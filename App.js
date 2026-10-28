@@ -21,6 +21,7 @@ import * as ScreenCapture from 'expo-screen-capture';
 import { clearIfExpired } from './src/clipboardManager';
 import useVaultLifecycle from './src/hooks/useVaultLifecycle';
 import { initSessionKey, clearSessionKey, protectEntries, unprotectEntries } from './src/services/sessionSecurity';
+import { autofillService } from './src/services/autofillService';
 
 import LockScreen from './src/screens/LockScreen';
 import VaultScreen from './src/screens/VaultScreen';
@@ -120,6 +121,19 @@ function AppInner() {
     // Ekran koruması: FLAG_SECURE ve ekran görüntüsü/kaydı engelleme varsayılan olarak açıktır.
     ScreenCapture.preventScreenCaptureAsync().catch(console.warn);
   }, []);
+
+  useEffect(() => {
+    if (vaultData && mode === 'vault') {
+      try {
+        const parsed = typeof vaultData === 'string' ? JSON.parse(vaultData) : vaultData;
+        const entries = parsed?.entries || (Array.isArray(parsed) ? parsed : []);
+        const unprotected = unprotectEntries(entries);
+        autofillService.syncVault(unprotected).catch(() => {});
+      } catch (_) {}
+    } else if (mode === 'lock') {
+      autofillService.lockSession().catch(() => {});
+    }
+  }, [vaultData, mode]);
 
   useEffect(() => {
     if (hasShareIntent && shareIntent.value) {

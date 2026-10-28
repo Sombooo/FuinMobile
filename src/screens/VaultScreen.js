@@ -28,6 +28,7 @@ import FuinImporters from '../services/importers';
 import VaultCardItem from '../components/VaultCardItem';
 import useVaultSearch from '../hooks/useVaultSearch';
 import { memDecrypt, unprotectEntries } from '../services/sessionSecurity';
+import { autofillService } from '../services/autofillService';
 
 export default function VaultScreen({ 
   vaultData, 
@@ -92,6 +93,22 @@ export default function VaultScreen({
   // Sync & Pairing State
   const [syncMode, setSyncMode] = useState('lan');
   const [pairingInfo, setPairingInfo] = useState(null);
+  const [autofillEnabled, setAutofillEnabled] = useState(false);
+  const [autofillSupported, setAutofillSupported] = useState(false);
+
+  useEffect(() => {
+    const checkAutofill = async () => {
+      const supported = autofillService.isSupported();
+      setAutofillSupported(supported);
+      if (supported) {
+        const enabled = await autofillService.isEnabled();
+        setAutofillEnabled(enabled);
+      }
+    };
+    if (activeTab === 'settings') {
+      checkAutofill();
+    }
+  }, [activeTab]);
 
   const loadPairingAndSyncSettings = async () => {
     try {
@@ -736,6 +753,46 @@ export default function VaultScreen({
                 thumbColor={theme.bg}
               />
             </View>
+
+            {autofillSupported && (
+              <>
+                <CustomText style={[styles.settingsTitle, {fontSize: 14, color: theme.muted, marginTop: 10}]}>{t('autofillTitle')}</CustomText>
+                <View style={[styles.settingsCard, { marginBottom: 20 }]}>
+                  <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8}}>
+                    <View style={{flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1}}>
+                      <Feather name="zap" size={18} color={theme.text} />
+                      <CustomText style={{color: theme.text, fontSize: 13, fontWeight: 'bold'}}>
+                        {autofillEnabled ? t('autofillStatusActive') : t('autofillStatusInactive')}
+                      </CustomText>
+                    </View>
+                    <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: autofillEnabled ? (isLight ? 'rgba(61,107,79,0.15)' : 'rgba(90,154,110,0.2)') : (isLight ? 'rgba(160,52,42,0.08)' : 'rgba(212,90,74,0.12)'), paddingVertical: 3, paddingHorizontal: 8, borderRadius: 12}}>
+                      <View style={{width: 6, height: 6, borderRadius: 3, backgroundColor: autofillEnabled ? theme.green : theme.red, marginRight: 5}} />
+                      <CustomText style={{color: autofillEnabled ? theme.green : theme.red, fontSize: 11, fontWeight: '600'}}>
+                        {autofillEnabled ? t('autofillStatusActive') : t('autofillStatusInactive')}
+                      </CustomText>
+                    </View>
+                  </View>
+                  <CustomText style={{color: theme.muted, fontSize: 12, marginBottom: 12}}>
+                    {t('autofillDesc')}
+                  </CustomText>
+                  <TouchableOpacity
+                    style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: autofillEnabled ? theme.paper : theme.accent, borderWidth: 1, borderColor: autofillEnabled ? theme.border : theme.accent, paddingVertical: 9, borderRadius: 6}}
+                    onPress={async () => {
+                      await autofillService.openSettings();
+                      setTimeout(async () => {
+                        const en = await autofillService.isEnabled();
+                        setAutofillEnabled(en);
+                      }, 1000);
+                    }}
+                  >
+                    <Feather name="external-link" size={14} color={autofillEnabled ? theme.accent : theme.bg} />
+                    <CustomText style={{color: autofillEnabled ? theme.accent : theme.bg, fontSize: 12, fontWeight: 'bold'}}>
+                      {autofillEnabled ? t('autofillBtnSettings') : t('autofillBtnEnable')}
+                    </CustomText>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
 
             <CustomText style={[styles.settingsTitle, {fontSize: 14, color: theme.muted, marginTop: 10}]}>{t('autoLockTitle')}</CustomText>
             <View style={{flexDirection: 'row', gap: 10, marginBottom: 20, flexWrap: 'wrap'}}>

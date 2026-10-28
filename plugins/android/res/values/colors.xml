@@ -1,0 +1,17 @@
+<resources>
+  <color name="splashscreen_background">#2A2520</color>
+  <color name="iconBackground">#2A2520</color>
+  <color name="colorPrimary">#5A9A6E</color>
+
+  <!-- Fuin Warm Dark Design System -->
+  <color name="fuin_bg">#1A1816</color>
+  <color name="fuin_surface">#222019</color>
+  <color name="fuin_card">#2A2720</color>
+  <color name="fuin_border">#3D3830</color>
+  <color name="fuin_border_subtle">#524B40</color>
+  <color name="fuin_text_primary">#E8E2D8</color>
+  <color name="fuin_text_muted">#A69D92</color>
+  <color name="fuin_accent">#5A9A6E</color>
+  <color name="fuin_accent_bright">#6BB382</color>
+  <color name="fuin_amber">#C88040</color>
+</resources>

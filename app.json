@@ -56,7 +56,8 @@
             "usesCleartextTraffic": true
           }
         }
-      ]
+      ],
+      "./plugins/withAndroidAutofill"
     ],
     "extra": {
       "eas": {

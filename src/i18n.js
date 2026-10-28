@@ -148,6 +148,13 @@ const TRANSLATIONS = {
     noPairedDeviceWarn: 'Henüz eşleşmiş bir cihaz bulunmuyor. Lütfen önce Ayarlar sekmesinden cihazınızı eşleştirin.',
     
     // Settings
+    autofillTitle: 'OTOMATİK DOLDURMA (AUTOFILL)',
+    autofillDesc: 'Uygulamalarda ve tarayıcılarda şifrelerinizi tek dokunuşla doldurun.',
+    autofillStatusActive: 'Etkin',
+    autofillStatusInactive: 'Devre Dışı',
+    autofillBtnEnable: 'Ayarlardan Etkinleştir',
+    autofillBtnSettings: 'Sistem Ayarları',
+    autofillNotSupported: 'Bu cihaz veya Android sürümü otomatik doldurmayı desteklemiyor.',
     themeTitle: 'TEMA',
     themeSystem: 'SİSTEM',
     themeDark: 'KOYU',
@@ -449,6 +456,13 @@ const TRANSLATIONS = {
     noPairedDeviceWarn: 'No paired device found. Please pair your device first from the Settings tab.',
     
     // Settings
+    autofillTitle: 'AUTOFILL SERVICE',
+    autofillDesc: 'Fill logins and passwords seamlessly across apps and browsers with a single tap.',
+    autofillStatusActive: 'Active',
+    autofillStatusInactive: 'Inactive',
+    autofillBtnEnable: 'Enable in Settings',
+    autofillBtnSettings: 'System Settings',
+    autofillNotSupported: 'Autofill is not supported on this device or OS version.',
     themeTitle: 'THEME',
     themeSystem: 'SYSTEM',
     themeDark: 'DARK',
