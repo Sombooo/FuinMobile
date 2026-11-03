@@ -20,6 +20,7 @@ import { Buffer } from '@craftzdog/react-native-buffer';
 import * as ScreenCapture from 'expo-screen-capture';
 import { clearIfExpired } from './src/clipboardManager';
 import useVaultLifecycle from './src/hooks/useVaultLifecycle';
+import useAutofillSync from './src/hooks/useAutofillSync';
 import { initSessionKey, clearSessionKey, protectEntries, unprotectEntries } from './src/services/sessionSecurity';
 import { autofillService } from './src/services/autofillService';
 
@@ -123,23 +124,10 @@ function AppInner() {
   }, []);
 
   useEffect(() => {
-    if (vaultData && mode === 'vault') {
-      try {
-        const parsed = typeof vaultData === 'string' ? JSON.parse(vaultData) : vaultData;
-        const entries = parsed?.entries || (Array.isArray(parsed) ? parsed : []);
-        const unprotected = unprotectEntries(entries);
-        autofillService.syncVault(unprotected).catch(() => {});
-      } catch (_) {}
-    } else if (mode === 'lock') {
-      autofillService.lockSession().catch(() => {});
-    }
-  }, [vaultData, mode]);
-
-  useEffect(() => {
     if (hasShareIntent && shareIntent.value) {
-      const text = String(shareIntent.value || '');
+      const text = String(shareIntent.value || '').slice(0, 4096);
       const isUrl = text.startsWith('http://') || text.startsWith('https://');
-      const title = shareIntent.meta?.title || '';
+      const title = String(shareIntent.meta?.title || '').slice(0, 256);
       let parsedHost = 'Yeni Kayıt';
       if (isUrl) {
         try {
@@ -167,6 +155,15 @@ function AppInner() {
   const { isAppActive } = useVaultLifecycle({
     onLock: lockApp,
     onCheckLocalVault: checkLocalVault,
+  });
+
+  useAutofillSync({
+    vaultData,
+    mode,
+    isAppActive,
+    password,
+    onUpdateVaultData: (nextVaultStr) => handleUpdateVaultData(nextVaultStr),
+    onSavedToast: () => toast.showToast(t('autofillSavedToast')),
   });
 
   const [failCount, setFailCount] = useState(0);
@@ -478,25 +475,29 @@ function AppInner() {
 
   const handleBarcodeScanned = async ({ data }) => {
     if (isDecrypting || syncPasswordPrompt || masterPasswordPrompt || isBarcodeLocked.current) return;
+    if (typeof data !== 'string' || data.length > 8192) return;
     
-    const cleanData = typeof data === 'string' ? data.trim() : '';
+    const cleanData = data.trim();
+    if (!cleanData) return;
     let pairing = null;
-    if (cleanData && cleanData.startsWith('{') && (cleanData.includes('fuin-lan') || cleanData.includes('pairKey'))) {
+    if (cleanData.startsWith('{') && (cleanData.includes('fuin-lan') || cleanData.includes('pairKey'))) {
       try {
         pairing = JSON.parse(cleanData);
       } catch (err) {
         console.warn('Pairing parse error:', err);
       }
-    } else if (cleanData && cleanData.startsWith('fuin://pair')) {
+    } else if (/^fuin:\/\/pair(?:[/?#]|$)/i.test(cleanData)) {
       try {
         const url = new URL(cleanData);
-        pairing = {
-          protocol: 'fuin-lan-v1',
-          deviceId: url.searchParams.get('id') || url.searchParams.get('deviceId'),
-          pairKey: url.searchParams.get('key') || url.searchParams.get('pairKey'),
-          port: parseInt(url.searchParams.get('port') || '8765', 10),
-          addresses: (url.searchParams.get('ips') || '').split(',').filter(Boolean)
-        };
+        if (url.protocol === 'fuin:') {
+          pairing = {
+            protocol: 'fuin-lan-v1',
+            deviceId: (url.searchParams.get('id') || url.searchParams.get('deviceId') || '').slice(0, 128),
+            pairKey: url.searchParams.get('key') || url.searchParams.get('pairKey'),
+            port: parseInt(url.searchParams.get('port') || '8765', 10),
+            addresses: (url.searchParams.get('ips') || '').split(',').filter(Boolean).slice(0, 16)
+          };
+        }
       } catch (err) {
         console.warn('Pairing URL parse error:', err);
       }
@@ -901,6 +902,7 @@ function AppInner() {
   };
 
   const handleVaultErased = () => {
+    autofillService.clearAll().catch(() => {});
     setHasLocalVault(false);
     lockApp();
   };

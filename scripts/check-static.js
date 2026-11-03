@@ -35,6 +35,8 @@ const PURE_JS_TARGETS = [
   'src/services/passwordGenerator.js',
   'src/services/totpEngine.js',
   'src/services/sessionSecurity.js',
+  'src/services/autofillMerge.js',
+  'src/services/updateCore.js',
   'src/services/importers/detector.js',
   'src/services/importers/csvImporter.js',
   'src/services/importers/jsonImporter.js',
@@ -62,7 +64,12 @@ const ALL_SOURCE_FILES = [
   'src/screens/LockScreen.js',
   'src/components/VaultCardItem.js',
   'src/hooks/useVaultLifecycle.js',
+  'src/hooks/useAutofillSync.js',
   'src/hooks/useVaultSearch.js',
+  'src/hooks/useAppUpdater.js',
+  'src/services/autofillService.js',
+  'src/services/updateCore.js',
+  'src/services/updateService.js',
 ];
 
 console.log('\n[2. Top-Level Const Reassignment Guard (no-const-assign)]');

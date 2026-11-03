@@ -155,6 +155,7 @@ const TRANSLATIONS = {
     autofillBtnEnable: 'Ayarlardan Etkinleştir',
     autofillBtnSettings: 'Sistem Ayarları',
     autofillNotSupported: 'Bu cihaz veya Android sürümü otomatik doldurmayı desteklemiyor.',
+    autofillSavedToast: 'Otomatik doldurma ile kaydedilen şifre kasaya eklendi.',
     themeTitle: 'TEMA',
     themeSystem: 'SİSTEM',
     themeDark: 'KOYU',
@@ -308,6 +309,23 @@ const TRANSLATIONS = {
     // Recovery
     recoveryCreatedTitle: 'Kasa Oluşturuldu!',
     recoveryCreatedBody: 'Bu kurtarma anahtarını güvenli bir yere kaydedin. Şifrenizi unutursanız kasayı bu anahtarla açabilirsiniz.',
+
+    // In-App Self Updater
+    updateBannerTitle: 'Yeni sürüm mevcut: v{version}',
+    updateBtnInstallNow: 'Güncelle',
+    updateBtnCheck: 'Güncellemeleri Denetle',
+    updateChecking: 'Denetleniyor...',
+    updateDownloading: 'İndiriliyor... %{percent}',
+    updateVerifying: 'İmza ve SHA-256 doğrulanıyor...',
+    updateAvailableMsg: 'Yeni sürüm mevcut: v{version}',
+    updateUpToDateMsg: 'En güncel sürümü kullanıyorsunuz (v{version}).',
+    updateCheckFailedMsg: 'Kontrol edilemedi. İnternet bağlantısını kontrol edin.',
+    updatePermTitle: 'Kurulum İzni Gerekiyor',
+    updatePermBody: 'Güncelleme indirildi ve kriptografik imzası doğrulandı. Kurulumu tamamlamak için açılan ekranda Fuin için "Bu kaynaktan izin ver" seçeneğini etkinleştirin.',
+    updatePermBtn: 'İzin Ver ve Kur',
+    updateSecurityVerifyError: 'Güvenlik doğrulaması başarısız oldu (imza veya SHA-256 özeti uyuşmadı). Dosya silindi.',
+    updateDownloadError: 'Güncelleme indirilemedi. Lütfen bağlantınızı kontrol edip tekrar deneyin.',
+    updateInstallError: 'Android kurulum ekranı başlatılamadı.',
   },
   
   en: {
@@ -463,6 +481,7 @@ const TRANSLATIONS = {
     autofillBtnEnable: 'Enable in Settings',
     autofillBtnSettings: 'System Settings',
     autofillNotSupported: 'Autofill is not supported on this device or OS version.',
+    autofillSavedToast: 'Saved autofill credential added to vault.',
     themeTitle: 'THEME',
     themeSystem: 'SYSTEM',
     themeDark: 'DARK',
@@ -616,6 +635,23 @@ const TRANSLATIONS = {
     // Recovery
     recoveryCreatedTitle: 'Vault Created!',
     recoveryCreatedBody: 'Save this recovery key in a safe place. If you forget your password, you can unlock the vault with this key.',
+
+    // In-App Self Updater
+    updateBannerTitle: 'New version available: v{version}',
+    updateBtnInstallNow: 'Update',
+    updateBtnCheck: 'Check for Updates',
+    updateChecking: 'Checking...',
+    updateDownloading: 'Downloading... {percent}%',
+    updateVerifying: 'Verifying signature & SHA-256...',
+    updateAvailableMsg: 'New version available: v{version}',
+    updateUpToDateMsg: 'You are on the latest version (v{version}).',
+    updateCheckFailedMsg: 'Could not check for updates. Verify your internet connection.',
+    updatePermTitle: 'Install Permission Required',
+    updatePermBody: 'The update was downloaded and its cryptographic signature was verified. Enable "Allow from this source" for Fuin on the next screen to complete installation.',
+    updatePermBtn: 'Grant & Install',
+    updateSecurityVerifyError: 'Security verification failed (signature or SHA-256 mismatch). File deleted.',
+    updateDownloadError: 'Failed to download update. Please check your connection and try again.',
+    updateInstallError: 'Could not launch Android package installer.',
   }
 };
 

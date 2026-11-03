@@ -1,5 +1,5 @@
 import CustomText from '../components/CustomText';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, Modal, TouchableOpacity, ScrollView, ActivityIndicator, Platform, StatusBar } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useTheme } from '../theme';
@@ -7,51 +7,93 @@ import { useI18n } from '../i18n';
 import crypto from 'react-native-quick-crypto';
 import { memDecrypt } from '../services/sessionSecurity';
 
+const HIBP_TIMEOUT_MS = 8000;
+const HIBP_MAX_RESPONSE_CHARS = 262144;
+
 export default function HealthModal({ visible, entries, onClose }) {
   const { theme } = useTheme();
   const { t } = useI18n();
   const [scanning, setScanning] = useState(false);
   const [scanResults, setScanResults] = useState(null);
   const [progress, setProgress] = useState({ current: 0, total: 0, currentSite: '' });
+  const scanSessionRef = useRef(0);
+  const activeAbortRef = useRef(null);
 
   useEffect(() => {
     if (!visible) {
+      scanSessionRef.current += 1;
+      if (activeAbortRef.current) {
+        try { activeAbortRef.current.abort(); } catch {}
+        activeAbortRef.current = null;
+      }
       setScanResults(null);
       setScanning(false);
       setProgress({ current: 0, total: 0, currentSite: '' });
     }
+    return () => {
+      scanSessionRef.current += 1;
+      if (activeAbortRef.current) {
+        try { activeAbortRef.current.abort(); } catch {}
+        activeAbortRef.current = null;
+      }
+    };
   }, [visible]);
 
   const checkPwned = async (pw) => {
+    if (!pw) return 0;
     const hash = crypto.createHash('sha1').update(pw, 'utf8').digest('hex').toUpperCase();
     const pre = hash.slice(0, 5);
     const suf = hash.slice(5);
+    if (!/^[0-9A-F]{5}$/.test(pre)) return -1;
+
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    activeAbortRef.current = controller;
+    const timer = controller ? setTimeout(() => {
+      try { controller.abort(); } catch {}
+    }, HIBP_TIMEOUT_MS) : null;
+
     try {
       const r = await fetch(`https://api.pwnedpasswords.com/range/${pre}`, {
         cache: 'no-store',
-        headers: { 'Add-Padding': 'true' }
+        headers: { 'Add-Padding': 'true' },
+        signal: controller ? controller.signal : undefined
       });
       if (!r.ok) return -1;
+      if (r.url && !r.url.startsWith('https://api.pwnedpasswords.com/')) return -1;
       const text = await r.text();
+      if (typeof text !== 'string' || text.length > HIBP_MAX_RESPONSE_CHARS) return -1;
       const lines = text.split('\n');
       for (const line of lines) {
         const [hh, c] = line.trim().split(':');
-        if (hh === suf) return parseInt(c, 10);
+        if (hh === suf) {
+          const parsedCount = parseInt(c, 10);
+          return Number.isFinite(parsedCount) && parsedCount >= 0 ? parsedCount : -1;
+        }
       }
       return 0;
-    } catch { return -1; }
+    } catch {
+      return -1;
+    } finally {
+      if (timer) clearTimeout(timer);
+      if (activeAbortRef.current === controller) {
+        activeAbortRef.current = null;
+      }
+    }
   };
 
   const startScan = async () => {
+    const sessionId = ++scanSessionRef.current;
     setScanning(true);
-    const passwordEntries = entries.filter(e => e.password);
+    const passwordEntries = (Array.isArray(entries) ? entries : []).filter(e => e && !e.isDeleted && !e.deletedAt && e.password);
     const results = { breached: [], clean: 0, errors: 0 };
     
     for (let i = 0; i < passwordEntries.length; i++) {
+      if (scanSessionRef.current !== sessionId) return;
       const e = passwordEntries[i];
       setProgress({ current: i + 1, total: passwordEntries.length, currentSite: e.site || t('hibpUnknown') });
       const rawPw = typeof e.password === 'object' ? memDecrypt(e.password) : String(e.password || '');
       const count = await checkPwned(rawPw);
+      if (scanSessionRef.current !== sessionId) return;
       if (count > 0) {
         results.breached.push({ site: e.site, username: e.username, count });
       } else if (count === 0) {
@@ -60,6 +102,7 @@ export default function HealthModal({ visible, entries, onClose }) {
         results.errors++;
       }
     }
+    if (scanSessionRef.current !== sessionId) return;
     results.breached.sort((a, b) => b.count - a.count);
     setScanResults(results);
     setScanning(false);

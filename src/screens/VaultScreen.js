@@ -27,6 +27,7 @@ import { copySecure } from '../clipboardManager';
 import FuinImporters from '../services/importers';
 import VaultCardItem from '../components/VaultCardItem';
 import useVaultSearch from '../hooks/useVaultSearch';
+import useAppUpdater from '../hooks/useAppUpdater';
 import { memDecrypt, unprotectEntries } from '../services/sessionSecurity';
 import { autofillService } from '../services/autofillService';
 
@@ -45,6 +46,7 @@ export default function VaultScreen({
 }) {
   const { t, lang, setLang } = useI18n();
   const { showAlert } = useAlert();
+  const updater = useAppUpdater({ t, showAlert });
   
   const insets = useSafeAreaInsets();
   const { theme, themeMode, changeTheme } = useTheme();
@@ -184,8 +186,8 @@ export default function VaultScreen({
         id: Date.now().toString(),
         site: sharedEntryData.site || '',
         category: sharedEntryData.category || t('cat_other'),
-        username: '',
-        password: '',
+        username: sharedEntryData.username || '',
+        password: sharedEntryData.password || '',
         url: sharedEntryData.url || '',
         notes: sharedEntryData.notes || '',
         isNew: true
@@ -368,19 +370,34 @@ export default function VaultScreen({
 
   const handleOpenUrl = useCallback(async (rawUrl) => {
     try {
-      let urlToOpen = (rawUrl || '').trim();
+      let urlToOpen = String(rawUrl || '').trim();
+      if (!urlToOpen) return;
+
+      // Reject non-web URI schemes (javascript:, intent:, file:, content:, fuin:, androidapp:)
+      if (/^[a-z][a-z0-9+.-]*:/i.test(urlToOpen) && !/^https?:\/\//i.test(urlToOpen)) {
+        showAlert(t('alertError'), t('toastGenericError') + ' (Geçersiz URL)');
+        return;
+      }
+
       if (!/^https?:\/\//i.test(urlToOpen)) {
         urlToOpen = 'https://' + urlToOpen;
       }
-      const supported = await Linking.canOpenURL(urlToOpen);
+
+      const parsed = new URL(urlToOpen);
+      if ((parsed.protocol !== 'https:' && parsed.protocol !== 'http:') || !parsed.hostname) {
+        showAlert(t('alertError'), t('toastGenericError') + ' (Geçersiz URL)');
+        return;
+      }
+
+      const supported = await Linking.canOpenURL(parsed.href);
       if (supported) {
-        await Linking.openURL(urlToOpen);
+        await Linking.openURL(parsed.href);
       } else {
         showAlert(t('alertError'), t('toastGenericError') + ' (Geçersiz URL)');
       }
     } catch (error) {
       console.error("URL açılırken hata:", error);
-      showAlert(t('alertError'), t('toastGenericError'));
+      showAlert(t('alertError'), t('toastGenericError') + ' (Geçersiz URL)');
     }
   }, [t, showAlert]);
 
@@ -456,6 +473,64 @@ export default function VaultScreen({
                 clearButtonMode="while-editing"
               />
             </View>
+
+            {/* In-App Update Notification Banner */}
+            {updater.showBanner && updater.updateInfo ? (
+              <View style={{
+                marginHorizontal: 15,
+                marginTop: 10,
+                paddingHorizontal: 14,
+                paddingVertical: 11,
+                borderRadius: 4,
+                borderWidth: 1,
+                borderColor: theme.accent,
+                backgroundColor: 'rgba(90, 154, 110, 0.14)',
+              }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                  <View style={{ flex: 1 }}>
+                    <CustomText style={{ color: theme.text, fontSize: 13, fontWeight: 'bold' }}>
+                      {(t('updateBannerTitle') || 'Yeni sürüm mevcut: v{version}').replace('{version}', updater.updateInfo.version)}
+                    </CustomText>
+                    {(updater.downloading || updater.verifying) ? (
+                      <CustomText style={{ color: theme.muted, fontSize: 11, marginTop: 2 }}>
+                        {updater.verifying
+                          ? t('updateVerifying')
+                          : (t('updateDownloading') || 'İndiriliyor... %{percent}').replace('{percent}', String(updater.progress.percent))}
+                      </CustomText>
+                    ) : null}
+                  </View>
+
+                  {!(updater.downloading || updater.verifying) ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <TouchableOpacity
+                        activeOpacity={0.7}
+                        delayPressIn={0}
+                        style={{ backgroundColor: theme.accent, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 4 }}
+                        onPress={updater.startUpdateDownload}
+                      >
+                        <CustomText style={{ color: theme.bg, fontSize: 12, fontWeight: 'bold' }}>
+                          {t('updateBtnInstallNow')}
+                        </CustomText>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        activeOpacity={0.7}
+                        delayPressIn={0}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                        onPress={updater.dismissBanner}
+                      >
+                        <Feather name="x" size={16} color={theme.muted} />
+                      </TouchableOpacity>
+                    </View>
+                  ) : null}
+                </View>
+
+                {(updater.downloading || updater.verifying) ? (
+                  <View style={{ height: 4, backgroundColor: theme.border, borderRadius: 2, marginTop: 8, overflow: 'hidden' }}>
+                    <View style={{ width: `${updater.verifying ? 100 : updater.progress.percent}%`, height: '100%', backgroundColor: theme.accent }} />
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
 
             {/* List */}
             <FlatList
@@ -805,6 +880,7 @@ export default function VaultScreen({
                 <TouchableOpacity key={opt.value} style={[styles.settingsCard, { paddingVertical: 10, paddingHorizontal: 15 }]} onPress={async () => {
                   const SecureStore = require('expo-secure-store');
                   await SecureStore.setItemAsync('fuin-bg-timeout', opt.value);
+                  autofillService.syncVault(unprotectEntries(entries), parseInt(opt.value, 10)).catch(() => {});
                   showAlert(t('alertSaved'), t('autoLockSavedMsg').replace('{label}', opt.label));
                 }}>
                   <CustomText style={{color: theme.text, fontSize: 12, fontWeight: 'bold'}}>{opt.label}</CustomText>
@@ -814,8 +890,69 @@ export default function VaultScreen({
 
             <CustomText style={[styles.settingsTitle, {fontSize: 14, color: theme.muted, marginTop: 10}]}>{t('sysSecurityTitle')}</CustomText>
             <View style={styles.settingsCard}>
-              <CustomText style={{color: theme.text, fontSize: 14, fontWeight: 'bold'}}>Fuin Mobile v1.0.0-beta.5</CustomText>
-              <CustomText style={{color: theme.muted, fontSize: 12, marginTop: 4}}>{t('sysLocalVaultActive')}</CustomText>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                <View style={{ flex: 1 }}>
+                  <CustomText style={{color: theme.text, fontSize: 14, fontWeight: 'bold'}}>
+                    Fuin Mobile v{updater.currentVersion}
+                  </CustomText>
+                  <CustomText style={{color: theme.muted, fontSize: 12, marginTop: 4}}>{t('sysLocalVaultActive')}</CustomText>
+                </View>
+
+                {updater.isSupported ? (
+                  <TouchableOpacity
+                    activeOpacity={0.7}
+                    delayPressIn={0}
+                    disabled={updater.checking || updater.downloading || updater.verifying}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 6,
+                      paddingHorizontal: 12,
+                      paddingVertical: 8,
+                      borderRadius: 4,
+                      backgroundColor: updater.updateInfo ? theme.accent : 'transparent',
+                      borderWidth: 1,
+                      borderColor: updater.updateInfo ? theme.accent : theme.border,
+                      opacity: (updater.checking || updater.downloading || updater.verifying) ? 0.65 : 1,
+                    }}
+                    onPress={updater.updateInfo ? updater.startUpdateDownload : updater.checkUpdatesManual}
+                  >
+                    <Feather
+                      name={updater.updateInfo ? 'download' : 'refresh-cw'}
+                      size={13}
+                      color={updater.updateInfo ? theme.bg : theme.text}
+                    />
+                    <CustomText style={{ color: updater.updateInfo ? theme.bg : theme.text, fontSize: 12, fontWeight: 'bold' }}>
+                      {updater.checking
+                        ? t('updateChecking')
+                        : updater.verifying
+                          ? t('updateVerifying')
+                          : updater.downloading
+                            ? `${updater.progress.percent}%`
+                            : updater.updateInfo
+                              ? `${t('updateBtnInstallNow')} (v${updater.updateInfo.version})`
+                              : t('updateBtnCheck')}
+                    </CustomText>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+
+              {(updater.downloading || updater.verifying) ? (
+                <View style={{ marginTop: 10 }}>
+                  <View style={{ height: 4, backgroundColor: theme.border, borderRadius: 2, overflow: 'hidden' }}>
+                    <View style={{ width: `${updater.verifying ? 100 : updater.progress.percent}%`, height: '100%', backgroundColor: theme.accent }} />
+                  </View>
+                  <CustomText style={{ color: theme.muted, fontSize: 11, marginTop: 5 }}>
+                    {updater.verifying
+                      ? t('updateVerifying')
+                      : (t('updateDownloading') || 'İndiriliyor... %{percent}').replace('{percent}', String(updater.progress.percent))}
+                  </CustomText>
+                </View>
+              ) : updater.statusMessage ? (
+                <CustomText style={{ color: updater.updateInfo ? theme.accent : theme.muted, fontSize: 11, marginTop: 8 }}>
+                  {updater.statusMessage}
+                </CustomText>
+              ) : null}
               
               <View style={{height: 1, backgroundColor: theme.border, marginVertical: 10}} />
               <CustomText style={{color: theme.text, fontSize: 13, fontWeight: 'bold', marginBottom: 5}}>{t('sysCryptoArchitecture')}</CustomText>
@@ -887,10 +1024,23 @@ export default function VaultScreen({
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.navBtn} onPress={() => switchTabSmooth('settings')} activeOpacity={0.7} delayPressIn={0}>
-          <Svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={activeTab === 'settings' ? theme.accent : theme.muted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <Circle cx="12" cy="12" r="3" />
-            <Path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-          </Svg>
+          <View style={{ position: 'relative' }}>
+            <Svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={activeTab === 'settings' ? theme.accent : theme.muted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <Circle cx="12" cy="12" r="3" />
+              <Path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </Svg>
+            {updater.updateInfo ? (
+              <View style={{
+                position: 'absolute',
+                top: -2,
+                right: -3,
+                width: 8,
+                height: 8,
+                borderRadius: 4,
+                backgroundColor: theme.accent,
+              }} />
+            ) : null}
+          </View>
           <CustomText style={[styles.navText, activeTab === 'settings' && styles.navTextActive]}>{t('tabSettings')}</CustomText>
         </TouchableOpacity>
       </View>

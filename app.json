@@ -3,7 +3,7 @@
     "name": "Fuin Mobile",
     "slug": "fuin",
     "scheme": "fuin",
-    "version": "1.0.0-beta.5",
+    "version": "1.0.0-beta.6",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -24,7 +24,8 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "permissions": [
-        "android.permission.CAMERA"
+        "android.permission.CAMERA",
+        "android.permission.REQUEST_INSTALL_PACKAGES"
       ],
       "package": "com.sombooosteam.fuin",
       "versionCode": 1

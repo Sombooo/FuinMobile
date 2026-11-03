@@ -1,7 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:importantForAutofill="noExcludeDescendants"
+    tools:targetApi="o"
     android:background="#99000000"
     android:padding="24dp">
 
@@ -18,7 +21,7 @@
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:layout_marginBottom="16dp">
+            android:layout_marginBottom="14dp">
 
             <ImageView
                 android:layout_width="32dp"
@@ -37,7 +40,7 @@
                     android:id="@+id/auth_dialog_title"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Fuin Kasasını Aç"
+                    android:text="Fuin Kasasını Doğrula"
                     android:textColor="#E8E2D8"
                     android:textSize="16sp"
                     android:textStyle="bold" />
@@ -46,31 +49,26 @@
                     android:id="@+id/auth_dialog_subtitle"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Şifre doldurmak için ana şifrenizi girin"
+                    android:text="Şifreyi doldurmak için biyometrik doğrulama veya ekran kilidinizi kullanın"
                     android:textColor="#A69D92"
                     android:textSize="12sp" />
             </LinearLayout>
         </LinearLayout>
 
-        <EditText
-            android:id="@+id/auth_password_input"
+        <ListView
+            android:id="@+id/auth_picker_list"
             android:layout_width="match_parent"
-            android:layout_height="44dp"
-            android:background="#2A2720"
-            android:textColor="#E8E2D8"
-            android:textColorHint="#A69D92"
-            android:hint="Ana Şifre"
-            android:inputType="textPassword"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp"
-            android:textSize="14sp"
-            android:layout_marginBottom="8dp" />
+            android:layout_height="260dp"
+            android:divider="#3D3830"
+            android:dividerHeight="1dp"
+            android:visibility="gone"
+            android:layout_marginBottom="12dp" />
 
         <TextView
             android:id="@+id/auth_error_text"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:textColor="#E06C75"
+            android:textColor="#C88040"
             android:textSize="12sp"
             android:visibility="gone"
             android:layout_marginBottom="12dp" />
@@ -80,13 +78,14 @@
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="end"
-            android:layout_marginTop="8dp">
+            android:layout_marginTop="4dp">
 
             <Button
                 android:id="@+id/btn_cancel_auth"
                 android:layout_width="wrap_content"
                 android:layout_height="38dp"
                 android:text="İptal"
+                android:textAllCaps="false"
                 android:textColor="#A69D92"
                 android:background="@android:color/transparent"
                 android:layout_marginEnd="8dp" />
@@ -95,8 +94,10 @@
                 android:id="@+id/btn_confirm_auth"
                 android:layout_width="wrap_content"
                 android:layout_height="38dp"
-                android:text="Kilidi Aç"
-                android:textColor="#E8E2D8"
+                android:text="Doğrula"
+                android:textAllCaps="false"
+                android:textColor="#1A1816"
+                android:textStyle="bold"
                 android:background="#5A9A6E"
                 android:paddingStart="16dp"
                 android:paddingEnd="16dp" />

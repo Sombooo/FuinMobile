@@ -1,6 +1,5 @@
 package com.sombooosteam.fuin
 
-import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -45,7 +44,6 @@ class FuinAutofillModule(private val reactContext: ReactApplicationContext) :
                 promise.resolve(false)
             }
         } catch (e: Exception) {
-            // Fallback to generic autofill settings or app settings
             try {
                 val fallbackIntent = Intent(Settings.ACTION_SETTINGS).apply {
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK
@@ -59,13 +57,33 @@ class FuinAutofillModule(private val reactContext: ReactApplicationContext) :
     }
 
     @ReactMethod
-    fun syncAutofillVault(entriesJson: String, timeoutMinutes: Double, promise: Promise) {
+    fun syncAutofillVault(entriesJson: String, timeoutMs: Double, promise: Promise) {
         try {
-            val timeout = if (timeoutMinutes > 0) timeoutMinutes.toLong() else 15L
-            AutofillSecureStore.saveVaultEntries(reactContext, entriesJson, timeout)
+            val safeTimeoutMs = if (timeoutMs >= 0) timeoutMs.toLong() else 60_000L
+            AutofillSecureStore.saveVaultEntries(reactContext, entriesJson, safeTimeoutMs)
             promise.resolve(true)
         } catch (e: Exception) {
             promise.reject("AUTOFILL_SYNC_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun peekPendingSaves(promise: Promise) {
+        try {
+            val pendingJson = AutofillSecureStore.peekPendingSavesJson(reactContext)
+            promise.resolve(pendingJson)
+        } catch (e: Exception) {
+            promise.reject("AUTOFILL_PEEK_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun ackPendingSaves(consumedIdsJson: String, promise: Promise) {
+        try {
+            AutofillSecureStore.ackPendingSaves(reactContext, consumedIdsJson)
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("AUTOFILL_ACK_ERROR", e.message, e)
         }
     }
 

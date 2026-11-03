@@ -50,13 +50,13 @@ export async function savePairingInfo({ deviceId, pairKey, port, addresses }) {
   }
   let validAddresses = [];
   if (Array.isArray(addresses) && addresses.length > 0) {
-    validAddresses = addresses.filter(ip => isRFC1918OrLoopback(ip));
+    validAddresses = addresses.filter(ip => isRFC1918OrLoopback(ip)).slice(0, 16);
     if (validAddresses.length === 0) {
       throw new Error('Güvenlik hatası: QR kodundaki adres yerel ağ (RFC1918) adresi değil.');
     }
   }
 
-  if (deviceId) await SecureStore.setItemAsync('fuin_lan_paired_device', String(deviceId));
+  if (deviceId) await SecureStore.setItemAsync('fuin_lan_paired_device', String(deviceId).trim().slice(0, 128));
   if (pairKey) await SecureStore.setItemAsync('fuin_lan_pair_key', pairKey);
   if (port) await SecureStore.setItemAsync('fuin_lan_port', String(parsedPort));
   if (validAddresses.length > 0) {

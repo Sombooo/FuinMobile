@@ -138,7 +138,36 @@ const withAndroidAutofill = (config) => {
 
   // 4. Android Manifest registration
   return withAndroidManifest(config, (config) => {
-    const mainApplication = config.modResults.manifest.application[0];
+    const manifestRoot = config.modResults.manifest;
+
+    // Ensure REQUEST_INSTALL_PACKAGES permission for verified in-app APK updates
+    manifestRoot['uses-permission'] = manifestRoot['uses-permission'] || [];
+    const hasInstallPerm = manifestRoot['uses-permission'].some(
+      (p) => p.$ && p.$['android:name'] === 'android.permission.REQUEST_INSTALL_PACKAGES'
+    );
+    if (!hasInstallPerm) {
+      manifestRoot['uses-permission'].push({
+        $: { 'android:name': 'android.permission.REQUEST_INSTALL_PACKAGES' },
+      });
+    }
+
+    // Ensure Android 11+ package visibility for APK signing-certificate verification on launchable apps
+    manifestRoot.queries = manifestRoot.queries || [{ intent: [] }];
+    const firstQueries = manifestRoot.queries[0];
+    firstQueries.intent = firstQueries.intent || [];
+    const hasLauncherQuery = firstQueries.intent.some(
+      (i) =>
+        Array.isArray(i.action) &&
+        i.action.some((a) => a.$ && a.$['android:name'] === 'android.intent.action.MAIN')
+    );
+    if (!hasLauncherQuery) {
+      firstQueries.intent.push({
+        action: [{ $: { 'android:name': 'android.intent.action.MAIN' } }],
+        category: [{ $: { 'android:name': 'android.intent.category.LAUNCHER' } }],
+      });
+    }
+
+    const mainApplication = manifestRoot.application[0];
 
     // Ensure service is declared
     mainApplication.service = mainApplication.service || [];
@@ -189,15 +218,41 @@ const withAndroidAutofill = (config) => {
           'android:theme': '@style/Theme.AppCompat.DayNight.Dialog',
           'android:exported': 'false',
           'android:excludeFromRecents': 'true',
-          'android:launchMode': 'singleTask',
+          'android:taskAffinity': '',
+          'android:launchMode': 'standard',
         },
       });
     } else {
-      // If already present, make sure theme is valid
       const authAct = mainApplication.activity.find((a) => a.$['android:name'] === '.AutofillAuthActivity');
       if (authAct && authAct.$) {
         authAct.$['android:theme'] = '@style/Theme.AppCompat.DayNight.Dialog';
+        authAct.$['android:taskAffinity'] = '';
+        authAct.$['android:launchMode'] = 'standard';
       }
+    }
+
+    // Ensure dedicated FuinUpdateFileProvider is declared for scoped cacheDir/fuin_updates APK installation
+    mainApplication.provider = mainApplication.provider || [];
+    const hasUpdateProvider = mainApplication.provider.some(
+      (p) => p.$ && p.$['android:name'] === '.FuinUpdateFileProvider'
+    );
+    if (!hasUpdateProvider) {
+      mainApplication.provider.push({
+        $: {
+          'android:name': '.FuinUpdateFileProvider',
+          'android:authorities': '${applicationId}.apkupdateprovider',
+          'android:exported': 'false',
+          'android:grantUriPermissions': 'true',
+        },
+        'meta-data': [
+          {
+            $: {
+              'android:name': 'android.support.FILE_PROVIDER_PATHS',
+              'android:resource': '@xml/fuin_update_paths',
+            },
+          },
+        ],
+      });
     }
 
     return config;

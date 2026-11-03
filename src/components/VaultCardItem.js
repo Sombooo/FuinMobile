@@ -71,7 +71,7 @@ const VaultCardItem = React.memo(function VaultCardItem({
         </View>
       </View>
       
-      {item.url ? (
+      {item.url && !/^androidapp:\/\//i.test(String(item.url).trim()) ? (
         <View style={[styles.row, { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: theme.border }]}>
           <CustomText style={styles.label}>{t('fieldUrl')}</CustomText>
           <TouchableOpacity 
