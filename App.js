@@ -1147,8 +1147,8 @@ function AppInner() {
                 {t('recoveryCreatedBody')}
               </CustomText>
               
-              <View style={{ backgroundColor: '#1A1A1A', padding: 15, borderRadius: 4, borderWidth: 1, borderColor: '#333', marginBottom: 20, alignItems: 'center' }}>
-                <CustomText style={{ fontSize: 16, color: theme.accent, fontWeight: '600', letterSpacing: 1 }}>
+              <View style={{ backgroundColor: theme.card, padding: 15, borderRadius: 4, borderWidth: 1, borderColor: theme.border, marginBottom: 20, alignItems: 'center' }}>
+                <CustomText style={{ fontSize: 16, color: theme.accent, fontWeight: '600', letterSpacing: 1 }} selectable>
                   {masterKeyData}
                 </CustomText>
               </View>
@@ -1156,12 +1156,16 @@ function AppInner() {
               <View style={{ flexDirection: 'row', gap: 10 }}>
                 <TouchableOpacity 
                   style={{ flex: 1, backgroundColor: 'transparent', borderWidth: 1, borderColor: theme.border, height: 44, justifyContent: 'center', alignItems: 'center', borderRadius: 4 }} 
+                  activeOpacity={0.7}
+                  delayPressIn={0}
                   onPress={() => setMasterKeyData(null)}
                 >
                   <CustomText style={{ color: theme.text, fontSize: 12, fontWeight: '600' }}>{t('btnCloseUpper')}</CustomText>
                 </TouchableOpacity>
                 <TouchableOpacity 
                   style={{ flex: 1, backgroundColor: theme.accent, height: 44, justifyContent: 'center', alignItems: 'center', borderRadius: 4 }} 
+                  activeOpacity={0.7}
+                  delayPressIn={0}
                   onPress={async () => {
                     await ClipboardExpo.setStringAsync(masterKeyData);
                     toast.showToast(t('toastRecoveryKeyCopied'));
