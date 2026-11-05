@@ -4,7 +4,7 @@ import { updateService } from '../services/updateService';
 import { normalizeVersion } from '../services/updateCore';
 
 export default function useAppUpdater({ t, showAlert }) {
-  const [currentVersion, setCurrentVersion] = useState('1.0.0-beta.7');
+  const [currentVersion, setCurrentVersion] = useState('1.0.0-beta.8');
   const [checking, setChecking] = useState(false);
   const [updateInfo, setUpdateInfo] = useState(null);
   const [bannerDismissed, setBannerDismissed] = useState(false);

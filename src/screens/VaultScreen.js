@@ -135,7 +135,7 @@ export default function VaultScreen({
       try {
         const AsyncStorage = require('@react-native-async-storage/async-storage').default;
         const lastSeen = await AsyncStorage.getItem('fuin_last_seen_changelog');
-        const curVer = updater.currentVersion || '1.0.0-beta.7';
+        const curVer = updater.currentVersion || '1.0.0-beta.8';
         const { isNewerVersion } = require('../services/updateCore');
         if (!lastSeen || isNewerVersion(curVer, lastSeen)) {
           setTimeout(() => {
