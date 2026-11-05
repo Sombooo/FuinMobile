@@ -222,16 +222,11 @@ export default function WhatsNewModal({ visible, onClose }) {
         <View style={{ 
           paddingHorizontal: 20, 
           paddingTop: 16, 
-          paddingBottom: Platform.OS === 'ios' ? 24 : 16, 
+          paddingBottom: Platform.OS === 'ios' ? 28 : 20, 
           borderTopWidth: 1, 
           borderTopColor: theme.border, 
           backgroundColor: theme.bg 
         }}>
-          <View style={{ alignItems: 'center', marginBottom: 12 }}>
-            <CustomText style={{ color: theme.muted, fontSize: 11, letterSpacing: 0.5 }}>
-              {t('whatsNewOfflineFooter') || 'Fuin — %100 Çevrimdışı & Güvenli'}
-            </CustomText>
-          </View>
           <TouchableOpacity
             activeOpacity={0.7}
             delayPressIn={0}
