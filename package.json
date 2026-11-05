@@ -1,6 +1,6 @@
 {
   "name": "fuinmobile",
-  "version": "1.0.0-beta.6",
+  "version": "1.0.0-beta.7",
   "main": "index.js",
   "overrides": {
     "shell-quote": "^1.12.0",
