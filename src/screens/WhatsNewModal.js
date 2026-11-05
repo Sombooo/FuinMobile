@@ -114,7 +114,12 @@ export default function WhatsNewModal({ visible, onClose }) {
         </View>
 
         {/* Content Body */}
-        <ScrollView style={{ flex: 1, padding: 20 }} keyboardShouldPersistTaps="handled">
+        <ScrollView 
+          style={{ flex: 1 }} 
+          contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 28 }}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
           {/* Release Overview Card */}
           <View style={{
             backgroundColor: theme.card,
@@ -122,7 +127,7 @@ export default function WhatsNewModal({ visible, onClose }) {
             borderRadius: 4,
             borderWidth: 1,
             borderColor: theme.border,
-            marginBottom: 16,
+            marginBottom: 14,
           }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
               <View style={{
@@ -151,7 +156,7 @@ export default function WhatsNewModal({ visible, onClose }) {
           </View>
 
           {/* Highlights List */}
-          <View style={{ gap: 12, marginBottom: 30 }}>
+          <View style={{ gap: 12 }}>
             {currentEntry.highlights.map((item, index) => {
               const itemTitle = isEn ? (item.titleEn || item.title) : item.title;
               const itemDesc = isEn ? (item.descEn || item.desc) : item.desc;
@@ -214,9 +219,16 @@ export default function WhatsNewModal({ visible, onClose }) {
         </ScrollView>
 
         {/* Footer */}
-        <View style={{ padding: 20, borderTopWidth: 1, borderTopColor: theme.border, backgroundColor: theme.card }}>
+        <View style={{ 
+          paddingHorizontal: 20, 
+          paddingTop: 16, 
+          paddingBottom: Platform.OS === 'ios' ? 24 : 16, 
+          borderTopWidth: 1, 
+          borderTopColor: theme.border, 
+          backgroundColor: theme.bg 
+        }}>
           <View style={{ alignItems: 'center', marginBottom: 12 }}>
-            <CustomText style={{ color: theme.muted, fontSize: 11 }}>
+            <CustomText style={{ color: theme.muted, fontSize: 11, letterSpacing: 0.5 }}>
               {t('whatsNewOfflineFooter') || 'Fuin — %100 Çevrimdışı & Güvenli'}
             </CustomText>
           </View>
