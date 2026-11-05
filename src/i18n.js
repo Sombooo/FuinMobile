@@ -213,6 +213,12 @@ const TRANSLATIONS = {
     sysLocalVaultActive: 'Yerel Güvenli Kasa devrede',
     sysCryptoArchitecture: 'Kriptografik Mimari',
     sysCryptoDetails: '• KDF: Argon2id (64 MB / 3 iter) & PBKDF2-SHA512\n• Kasa Şifreleme: AES-256-GCM (Authenticated encryption)\n• Eşitleme (LAN & QR): XChaCha20-Poly1305 AEAD (256-bit)\n• Hassas veriler sadece bellek (RAM) üzerinde çözülür.',
+    whatsNewTitle: 'Neler Yeni?',
+    whatsNewModalTitle: 'NELER YENİ?',
+    whatsNewSub: 'Son güncellemeler, yeni özellikler ve güvenlik iyileştirmelerini görüntüleyin.',
+    whatsNewBtn: 'Yama Notlarını Gör',
+    whatsNewGotIt: 'Harika, Anladım',
+    whatsNewOfflineFooter: 'Fuin — %100 Çevrimdışı & Güvenli',
     lockSessionBtn: 'Oturumu Kapat (Lock)',
     
     // Backup Modal
@@ -539,6 +545,12 @@ const TRANSLATIONS = {
     sysLocalVaultActive: 'Local Secure Vault active',
     sysCryptoArchitecture: 'Cryptographic Architecture',
     sysCryptoDetails: '• KDF: Argon2id (64 MB / 3 iter) & PBKDF2-SHA512\n• Vault Encryption: AES-256-GCM (Authenticated encryption)\n• Sync (LAN & QR): XChaCha20-Poly1305 AEAD (256-bit)\n• Sensitive data is decrypted only in memory (RAM).',
+    whatsNewTitle: "What's New?",
+    whatsNewModalTitle: "WHAT'S NEW?",
+    whatsNewSub: 'View recent updates, new features, and security enhancements.',
+    whatsNewBtn: 'View Release Notes',
+    whatsNewGotIt: 'Got It',
+    whatsNewOfflineFooter: 'Fuin — 100% Offline & Secure',
     lockSessionBtn: 'Log Out (Lock)',
     
     // Backup Modal

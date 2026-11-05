@@ -13,6 +13,7 @@ import * as LocalAuthentication from 'expo-local-authentication';
 import * as ClipboardExpo from 'expo-clipboard';
 import EditModal from './EditModal';
 import HealthModal from './HealthModal';
+import WhatsNewModal from './WhatsNewModal';
 import { Feather } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as DocumentPicker from 'expo-document-picker';
@@ -85,6 +86,7 @@ export default function VaultScreen({
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState(null);
   const [healthModalVisible, setHealthModalVisible] = useState(false);
+  const [whatsNewModalVisible, setWhatsNewModalVisible] = useState(false);
   const [backupModalVisible, setBackupModalVisible] = useState(false);
   const [backups, setBackups] = useState([]);
 
@@ -127,6 +129,22 @@ export default function VaultScreen({
   useEffect(() => {
     loadPairingAndSyncSettings();
   }, [activeTab, lanPairingVersion]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+        const lastSeen = await AsyncStorage.getItem('fuin_last_seen_changelog');
+        const curVer = updater.currentVersion || '1.0.0-beta.7';
+        const { isNewerVersion } = require('../services/updateCore');
+        if (!lastSeen || isNewerVersion(curVer, lastSeen)) {
+          setTimeout(() => {
+            setWhatsNewModalVisible(true);
+          }, 600);
+        }
+      } catch {}
+    })();
+  }, []);
 
   const handleSetSyncMode = async () => {
     setSyncMode('lan');
@@ -960,6 +978,24 @@ export default function VaultScreen({
                 {t('sysCryptoDetails')}
               </CustomText>
             </View>
+
+            <TouchableOpacity 
+              activeOpacity={0.7}
+              delayPressIn={0}
+              style={[styles.settingsCard, { marginTop: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]} 
+              onPress={() => setWhatsNewModalVisible(true)}
+            >
+              <View style={{ flex: 1, paddingRight: 10 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Feather name="zap" size={14} color={theme.accent} />
+                  <CustomText style={{ color: theme.text, fontSize: 13, fontWeight: 'bold' }}>{t('whatsNewTitle') || 'Neler Yeni?'}</CustomText>
+                </View>
+                <CustomText style={{ color: theme.muted, fontSize: 11, marginTop: 4, lineHeight: 16 }}>
+                  {t('whatsNewSub') || 'Son sürümlerdeki güncellemeleri ve güvenlik iyileştirmelerini görüntüleyin.'}
+                </CustomText>
+              </View>
+              <Feather name="chevron-right" size={18} color={theme.muted} />
+            </TouchableOpacity>
             <TouchableOpacity style={[styles.settingsCard, { marginTop: 15, marginBottom: 40 }]} onPress={onLogout}>
               <CustomText style={{color: theme.red, fontSize: 14, fontWeight: '600'}}>{t('lockSessionBtn')}</CustomText>
             </TouchableOpacity>
@@ -981,6 +1017,11 @@ export default function VaultScreen({
         visible={healthModalVisible} 
         entries={entries.filter(e => !e.isDeleted)} 
         onClose={() => setHealthModalVisible(false)} 
+      />
+
+      <WhatsNewModal 
+        visible={whatsNewModalVisible} 
+        onClose={() => setWhatsNewModalVisible(false)} 
       />
 
       {/* Bottom Navigation Bar */}

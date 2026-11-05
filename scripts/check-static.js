@@ -41,6 +41,7 @@ const PURE_JS_TARGETS = [
   'src/services/importers/csvImporter.js',
   'src/services/importers/jsonImporter.js',
   'src/services/importers/index.js',
+  'src/services/changelogData.js',
 ];
 
 console.log('[1. Pure Domain Service VM Compilation]');
@@ -62,6 +63,7 @@ const ALL_SOURCE_FILES = [
   'src/sync-v2-mobile.js',
   'src/screens/VaultScreen.js',
   'src/screens/LockScreen.js',
+  'src/screens/WhatsNewModal.js',
   'src/components/VaultCardItem.js',
   'src/hooks/useVaultLifecycle.js',
   'src/hooks/useAutofillSync.js',

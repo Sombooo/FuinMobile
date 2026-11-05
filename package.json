@@ -48,7 +48,7 @@
     "start": "expo start",
     "sync:autofill": "node scripts/sync-autofill-native.js",
     "lint": "node scripts/check-static.js",
-    "test": "node scripts/check-static.js && node -e \"const fs=require('fs'),cp=require('child_process');for(const f of ['test_session_security.js','test_app_flow.js','test_interop.js','test_security_phase6.js','test_sync_lan_mobile.js','test_bitwarden_features_mobile.js','test_cryptographic_standards_mobile.js','test_autofill_mobile_heuristics.js','test_mobile_self_updater.js']){if(fs.existsSync(f))cp.execFileSync(process.execPath,[f],{stdio:'inherit'});}\"",
+    "test": "node scripts/check-static.js && node -e \"const fs=require('fs'),cp=require('child_process');for(const f of ['test_session_security.js','test_app_flow.js','test_interop.js','test_security_phase6.js','test_sync_lan_mobile.js','test_bitwarden_features_mobile.js','test_cryptographic_standards_mobile.js','test_autofill_mobile_heuristics.js','test_mobile_self_updater.js','test_whats_new_mobile.js']){if(fs.existsSync(f))cp.execFileSync(process.execPath,[f],{stdio:'inherit'});}\"",
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
