@@ -1,6 +1,8 @@
 {
   "name": "fuinmobile",
   "version": "1.0.0-beta.8",
+  "description": "Offline-first password manager for mobile",
+  "license": "AGPL-3.0-or-later",
   "main": "index.js",
   "overrides": {
     "shell-quote": "^1.12.0",

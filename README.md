@@ -7,7 +7,7 @@
 
 The mobile companion I built for the [Fuin](https://github.com/Sombooo/Fuin) local-first password and 2FA manager.
 
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPLv3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![Platform: Android](https://img.shields.io/badge/Platform-Android-366347.svg)](#)
 [![Desktop: Fuin](https://img.shields.io/badge/Desktop-macOS%20%7C%20Windows-lightgray.svg)](https://github.com/Sombooo/Fuin)
 
@@ -101,6 +101,6 @@ npx expo start
 
 ## ☕ Support
 
-Fuin is an independent open-source project licensed under the **GPLv3**. If you enjoy using it and want to support its development, you can buy me a coffee below:
+Fuin is an independent open-source project licensed under the **AGPLv3**. If you enjoy using it and want to support its development, you can buy me a coffee below:
 
 [![Support via Lemon Squeezy](https://img.shields.io/badge/Support_Fuin-Buy_Me_A_Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://fuindev.lemonsqueezy.com/checkout/buy/c898c753-098b-4c0b-a721-77332db06bdc)
