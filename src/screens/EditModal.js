@@ -287,34 +287,34 @@ const getStyles = (theme) => StyleSheet.create({
     backgroundColor: theme.bg,
     paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0
   },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 15, borderBottomWidth: 1, borderColor: theme.border },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderColor: theme.border },
   headerTitle: { color: theme.text, fontSize: 15, fontWeight: 'bold', letterSpacing: 1 },
   cancelText: { color: theme.muted, fontSize: 14 },
   saveText: { color: theme.accent, fontSize: 14, fontWeight: 'bold' },
   content: { padding: 20, paddingBottom: 50 },
   label: { color: theme.muted, fontSize: 11, marginBottom: 6, fontWeight: 'bold', letterSpacing: 0.5 },
-  input: { backgroundColor: theme.card, color: theme.text, padding: 12, borderRadius: 6, fontSize: 15, marginBottom: 15, borderWidth: 1, borderColor: theme.border },
+  input: { backgroundColor: theme.card, color: theme.text, padding: 12, borderRadius: 6, fontSize: 15, marginBottom: 16, borderWidth: 1, borderColor: theme.border },
   textArea: { height: 100 },
-  row: { flexDirection: 'row', alignItems: 'center', marginBottom: 15 },
+  row: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
   
-  genBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.card, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, borderWidth: 1, borderColor: theme.border, gap: 4 },
+  genBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.card, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, borderWidth: 1, borderColor: theme.border, gap: 4 },
   genText: { color: theme.accent, fontSize: 12, fontWeight: 'bold' },
   
-  pwContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.card, borderRadius: 6, borderWidth: 1, borderColor: theme.border, marginBottom: 15 },
+  pwContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.card, borderRadius: 6, borderWidth: 1, borderColor: theme.border, marginBottom: 16 },
   pwInput: { flex: 1, color: theme.text, padding: 12, fontSize: 15 },
   eyeBtn: { padding: 12, justifyContent: 'center', alignItems: 'center' },
   
-  historyBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.card, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, borderWidth: 1, borderColor: theme.border, gap: 6, marginBottom: 15, alignSelf: 'flex-start' },
+  historyBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.card, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, borderWidth: 1, borderColor: theme.border, gap: 6, marginBottom: 16, alignSelf: 'flex-start' },
   historyBtnText: { color: theme.accent, fontSize: 11, fontWeight: 'bold' },
   histItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.border2 },
-  copyHistBtn: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 4, borderWidth: 1, borderColor: theme.accent, backgroundColor: 'transparent' },
+  copyHistBtn: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 4, borderWidth: 1, borderColor: theme.accent, backgroundColor: 'transparent' },
 
-  deleteBtn: { marginTop: 20, padding: 15, borderRadius: 6, borderWidth: 1, borderColor: theme.red, alignItems: 'center' },
+  deleteBtn: { marginTop: 20, padding: 16, borderRadius: 6, borderWidth: 1, borderColor: theme.red, alignItems: 'center' },
   deleteText: { color: theme.red, fontWeight: 'bold' },
   
   // Custom Category Picker Styles
-  catPickerBtn: { backgroundColor: theme.card, padding: 12, borderRadius: 6, borderWidth: 1, borderColor: theme.border, marginBottom: 15, height: 46, justifyContent: 'center' },
+  catPickerBtn: { backgroundColor: theme.card, padding: 12, borderRadius: 6, borderWidth: 1, borderColor: theme.border, marginBottom: 16, height: 48, justifyContent: 'center' },
   catOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 20 },
   catModal: { backgroundColor: theme.card, width: '100%', borderRadius: 12, padding: 20, borderWidth: 1, borderColor: theme.border },
   catTitle: { color: theme.text, fontSize: 18, fontWeight: 'bold', textAlign: 'center' },

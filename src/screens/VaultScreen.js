@@ -135,7 +135,7 @@ export default function VaultScreen({
       try {
         const AsyncStorage = require('@react-native-async-storage/async-storage').default;
         const lastSeen = await AsyncStorage.getItem('fuin_last_seen_changelog');
-        const curVer = updater.currentVersion || '1.0.0-beta.8';
+        const curVer = updater.currentVersion || '1.0.0-beta.9';
         const { isNewerVersion } = require('../services/updateCore');
         if (!lastSeen || isNewerVersion(curVer, lastSeen)) {
           setTimeout(() => {
@@ -481,7 +481,7 @@ export default function VaultScreen({
             </View>
 
             {/* Search Bar */}
-            <View style={{ paddingHorizontal: 15, paddingTop: 10, paddingBottom: 10, backgroundColor: theme.paper }}>
+            <View style={{ paddingHorizontal: 16, paddingTop: 10, paddingBottom: 10, backgroundColor: theme.paper }}>
               <CustomTextInput
                 style={{ backgroundColor: theme.bg, color: theme.text, padding: 10, borderRadius: 8, borderWidth: 1, borderColor: theme.border }}
                 placeholder={t('searchPlaceholderVault')}
@@ -495,10 +495,10 @@ export default function VaultScreen({
             {/* In-App Update Notification Banner */}
             {updater.showBanner && updater.updateInfo ? (
               <View style={{
-                marginHorizontal: 15,
+                marginHorizontal: 16,
                 marginTop: 10,
                 paddingHorizontal: 14,
-                paddingVertical: 11,
+                paddingVertical: 12,
                 borderRadius: 4,
                 borderWidth: 1,
                 borderColor: theme.accent,
@@ -895,7 +895,7 @@ export default function VaultScreen({
                 { label: t('time5m'), value: '300000' },
                 { label: t('time15m'), value: '900000' }
               ].map(opt => (
-                <TouchableOpacity key={opt.value} style={[styles.settingsCard, { paddingVertical: 10, paddingHorizontal: 15 }]} onPress={async () => {
+                <TouchableOpacity key={opt.value} style={[styles.settingsCard, { paddingVertical: 10, paddingHorizontal: 16 }]} onPress={async () => {
                   const SecureStore = require('expo-secure-store');
                   await SecureStore.setItemAsync('fuin-bg-timeout', opt.value);
                   autofillService.syncVault(unprotectEntries(entries), parseInt(opt.value, 10)).catch(() => {});
@@ -996,7 +996,7 @@ export default function VaultScreen({
               </View>
               <Feather name="chevron-right" size={18} color={theme.muted} />
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.settingsCard, { marginTop: 15, marginBottom: 40 }]} onPress={onLogout}>
+            <TouchableOpacity style={[styles.settingsCard, { marginTop: 16, marginBottom: 40 }]} onPress={onLogout}>
               <CustomText style={{color: theme.red, fontSize: 14, fontWeight: '600'}}>{t('lockSessionBtn')}</CustomText>
             </TouchableOpacity>
           </ScrollView>
@@ -1159,7 +1159,7 @@ const getStyles = (theme) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingVertical: 15,
+    paddingVertical: 16,
     borderBottomWidth: 1,
     borderBottomColor: theme.border,
     backgroundColor: theme.paper,
@@ -1185,7 +1185,7 @@ const getStyles = (theme) => StyleSheet.create({
     paddingVertical: 4,
   },
   categoriesScroll: {
-    paddingHorizontal: 15,
+    paddingHorizontal: 16,
     paddingVertical: 12,
     gap: 8,
   },
@@ -1212,7 +1212,7 @@ const getStyles = (theme) => StyleSheet.create({
   },
   listContainer: {
     padding: 20,
-    gap: 15,
+    gap: 16,
     paddingBottom: 80, // for FAB
   },
   card: {

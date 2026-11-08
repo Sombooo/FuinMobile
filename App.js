@@ -1029,7 +1029,7 @@ function AppInner() {
             autoCorrect={false}
           />
           <TouchableOpacity
-            style={{ backgroundColor: theme.accent, padding: 15, borderRadius: 8, alignItems: 'center' }}
+            style={{ backgroundColor: theme.accent, padding: 16, borderRadius: 8, alignItems: 'center' }}
             onPress={handleConfirmMasterPassword}
           >
             <CustomText style={{ color: theme.bg, fontWeight: 'bold' }}>{t('syncImportBtn')}</CustomText>
@@ -1068,7 +1068,7 @@ function AppInner() {
             autoCorrect={false}
           />
           <TouchableOpacity
-            style={{ backgroundColor: theme.accent, padding: 15, borderRadius: 8, alignItems: 'center' }}
+            style={{ backgroundColor: theme.accent, padding: 16, borderRadius: 8, alignItems: 'center' }}
             onPress={handleConfirmSyncPassword}
           >
             <CustomText style={{ color: theme.bg, fontWeight: 'bold' }}>{t('btnContinue')}</CustomText>
@@ -1140,20 +1140,20 @@ function AppInner() {
         {masterKeyData && (
           <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center', zIndex: 9999 }]}>
             <View style={{ width: '85%', backgroundColor: theme.bg, borderWidth: 1, borderColor: theme.border, padding: 24, borderRadius: 4 }}>
-              <CustomText style={{ fontSize: 18, color: theme.text, fontWeight: 'bold', marginBottom: 15, textAlign: 'center' }}>
+              <CustomText style={{ fontSize: 18, color: theme.text, fontWeight: 'bold', marginBottom: 16, textAlign: 'center' }}>
                 {t('recoveryCreatedTitle')}
               </CustomText>
               <CustomText style={{ fontSize: 13, color: theme.muted, lineHeight: 20, marginBottom: 20, textAlign: 'center' }}>
                 {t('recoveryCreatedBody')}
               </CustomText>
               
-              <View style={{ backgroundColor: theme.card, padding: 15, borderRadius: 4, borderWidth: 1, borderColor: theme.border, marginBottom: 20, alignItems: 'center' }}>
+              <View style={{ backgroundColor: theme.card, padding: 16, borderRadius: 4, borderWidth: 1, borderColor: theme.border, marginBottom: 20, alignItems: 'center' }}>
                 <CustomText style={{ fontSize: 16, color: theme.accent, fontWeight: '600', letterSpacing: 1 }} selectable>
                   {masterKeyData}
                 </CustomText>
               </View>
 
-              <View style={{ flexDirection: 'row', gap: 10 }}>
+              <View style={{ flexDirection: 'row', gap: 12 }}>
                 <TouchableOpacity 
                   style={{ flex: 1, backgroundColor: 'transparent', borderWidth: 1, borderColor: theme.border, height: 44, justifyContent: 'center', alignItems: 'center', borderRadius: 4 }} 
                   activeOpacity={0.7}

@@ -3,7 +3,7 @@
     "name": "Fuin Mobile",
     "slug": "fuin",
     "scheme": "fuin",
-    "version": "1.0.0-beta.8",
+    "version": "1.0.0-beta.9",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",

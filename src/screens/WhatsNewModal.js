@@ -81,7 +81,7 @@ export default function WhatsNewModal({ visible, onClose }) {
 
         {/* Version Tabs */}
         <View style={{ paddingHorizontal: 20, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: theme.border }}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 2 }}>
             {CHANGELOG_ENTRIES.map((entry) => {
               const isSelected = entry.version === selectedVer;
               return (
@@ -92,7 +92,7 @@ export default function WhatsNewModal({ visible, onClose }) {
                   onPress={() => setSelectedVer(entry.version)}
                   style={{
                     paddingHorizontal: 12,
-                    paddingVertical: 7,
+                    paddingVertical: 8,
                     borderRadius: 4,
                     backgroundColor: isSelected ? 'rgba(90, 154, 110, 0.14)' : theme.card,
                     borderWidth: 1,
@@ -127,13 +127,13 @@ export default function WhatsNewModal({ visible, onClose }) {
             borderRadius: 4,
             borderWidth: 1,
             borderColor: theme.border,
-            marginBottom: 14,
+            marginBottom: 16,
           }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
               <View style={{
                 backgroundColor: 'rgba(90, 154, 110, 0.14)',
                 paddingHorizontal: 8,
-                paddingVertical: 3,
+                paddingVertical: 4,
                 borderRadius: 3,
                 borderWidth: 1,
                 borderColor: 'rgba(90, 154, 110, 0.3)',
@@ -168,7 +168,7 @@ export default function WhatsNewModal({ visible, onClose }) {
                   key={index}
                   style={{
                     backgroundColor: theme.card,
-                    padding: 14,
+                    padding: 16,
                     borderRadius: 4,
                     borderWidth: 1,
                     borderColor: theme.border,
