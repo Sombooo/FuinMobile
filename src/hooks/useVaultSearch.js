@@ -12,6 +12,9 @@ export function useVaultSearch({ vaultData, t }) {
   const [activeCategory, setActiveCategory] = useState(t('cat_all'));
 
   const DEFAULT_CATEGORIES = useMemo(() => [
+    t('navLogins'),
+    t('navCards'),
+    t('navNotes'),
     t('cat_fav'),
     t('cat_trash'),
     t('cat_social'),
@@ -27,7 +30,7 @@ export function useVaultSearch({ vaultData, t }) {
       const parsed = JSON.parse(vaultData);
       let rawEntries = [];
       let rawCategories = [];
-      
+
       if (Array.isArray(parsed)) {
         rawEntries = parsed;
       } else {
@@ -35,11 +38,22 @@ export function useVaultSearch({ vaultData, t }) {
         rawEntries = parsed.entries || [];
       }
 
-      // İçerik çakışmalarını temizle (aynı site, kullanıcı adı ve şifreye sahipse sadece 1 tanesini tut)
+      // İçerik çakışmalarını temizle (aynı tip, başlık ve kimlik/şifreye sahipse sadece 1 tanesini tut)
       const seenContent = new Set();
       const deduplicatedEntries = rawEntries.filter(e => {
-        const pwKey = typeof e.password === 'object' && e.password ? e.password.data : String(e.password || '');
-        const key = `${e.site}||${e.username}||${pwKey}`;
+        const type = e.type || 'login';
+        let secretKey = '';
+        if (type === 'card') {
+          const cardKey = typeof e.cardNumber === 'object' && e.cardNumber ? e.cardNumber.data : String(e.cardNumber || '');
+          secretKey = `${e.cardholderName || e.username || ''}||${cardKey}`;
+        } else if (type === 'note') {
+          const noteKey = typeof e.secureNote === 'object' && e.secureNote ? e.secureNote.data : String(e.secureNote || '');
+          secretKey = noteKey;
+        } else {
+          const pwKey = typeof e.password === 'object' && e.password ? e.password.data : String(e.password || '');
+          secretKey = `${e.username || ''}||${pwKey}`;
+        }
+        const key = `${type}||${e.site || ''}||${secretKey}`;
         if (seenContent.has(key)) return false;
         seenContent.add(key);
         return true;
@@ -79,20 +93,30 @@ export function useVaultSearch({ vaultData, t }) {
       filtered = filtered.filter(e => !e.isDeleted);
       if (activeCategory === t('cat_fav')) {
         filtered = filtered.filter(e => e.fav);
+      } else if (activeCategory === t('navLogins')) {
+        filtered = filtered.filter(e => !e.type || e.type === 'login');
+      } else if (activeCategory === t('navCards')) {
+        filtered = filtered.filter(e => e.type === 'card');
+      } else if (activeCategory === t('navNotes')) {
+        filtered = filtered.filter(e => e.type === 'note');
       } else if (activeCategory !== t('cat_all')) {
         filtered = filtered.filter(e => (e.category || t('cat_other')) === activeCategory);
       }
     }
-    
+
     if (searchQuery.trim().length > 0) {
       const q = searchQuery.toLowerCase();
-      filtered = filtered.filter(e => 
+      filtered = filtered.filter(e =>
         (e.site || '').toLowerCase().includes(q) ||
         (e.username || '').toLowerCase().includes(q) ||
+        (e.cardholderName || '').toLowerCase().includes(q) ||
+        (e.cardBrand || '').toLowerCase().includes(q) ||
+        (e.cardLastFour || '').toLowerCase().includes(q) ||
+        (e.note || '').toLowerCase().includes(q) ||
         (e.category || '').toLowerCase().includes(q)
       );
     }
-    
+
     return filtered.sort((a, b) => (a.site || '').localeCompare(b.site || ''));
   }, [entries, activeCategory, searchQuery, t]);
 

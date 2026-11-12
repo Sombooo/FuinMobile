@@ -144,14 +144,19 @@
     if (!Array.isArray(entries)) return [];
     return entries.map(function (entry) {
       if (!entry || typeof entry !== 'object') return entry;
-      return Object.assign({}, entry, {
+      var updated = {
         password: memEncrypt(entry.password),
         totp: memEncrypt(entry.totp),
         history: Array.isArray(entry.history) ? entry.history.map(function (h) {
           if (!h || typeof h !== 'object') return h;
           return Object.assign({}, h, { password: memEncrypt(h.password) });
         }) : []
-      });
+      };
+      if (entry.cardNumber !== undefined) updated.cardNumber = memEncrypt(entry.cardNumber);
+      if (entry.cardCvv !== undefined) updated.cardCvv = memEncrypt(entry.cardCvv);
+      if (entry.cardPin !== undefined) updated.cardPin = memEncrypt(entry.cardPin);
+      if (entry.secureNote !== undefined) updated.secureNote = memEncrypt(entry.secureNote);
+      return Object.assign({}, entry, updated);
     });
   }
 
@@ -159,14 +164,19 @@
     if (!Array.isArray(entries)) return [];
     return entries.map(function (entry) {
       if (!entry || typeof entry !== 'object') return entry;
-      return Object.assign({}, entry, {
+      var updated = {
         password: memDecrypt(entry.password),
         totp: memDecrypt(entry.totp),
         history: Array.isArray(entry.history) ? entry.history.map(function (h) {
           if (!h || typeof h !== 'object') return h;
           return Object.assign({}, h, { password: memDecrypt(h.password) });
         }) : []
-      });
+      };
+      if (entry.cardNumber !== undefined) updated.cardNumber = memDecrypt(entry.cardNumber);
+      if (entry.cardCvv !== undefined) updated.cardCvv = memDecrypt(entry.cardCvv);
+      if (entry.cardPin !== undefined) updated.cardPin = memDecrypt(entry.cardPin);
+      if (entry.secureNote !== undefined) updated.secureNote = memDecrypt(entry.secureNote);
+      return Object.assign({}, entry, updated);
     });
   }
 

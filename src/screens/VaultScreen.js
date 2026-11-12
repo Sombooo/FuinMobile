@@ -80,7 +80,14 @@ export default function VaultScreen({
   };
 
   const editableCategories = useMemo(() => {
-    return allCategories.filter(c => c !== t('cat_all') && c !== t('cat_fav') && c !== t('cat_trash'));
+    return allCategories.filter(c =>
+      c !== t('cat_all') &&
+      c !== t('navLogins') &&
+      c !== t('navCards') &&
+      c !== t('navNotes') &&
+      c !== t('cat_fav') &&
+      c !== t('cat_trash')
+    );
   }, [allCategories, t]);
   
   // Edit State
@@ -277,16 +284,32 @@ export default function VaultScreen({
     }
   }, [t]);
 
-  const handleCopy = useCallback(async (val, label, entry) => {
-    const isPassword = label === t('fieldPassword');
-    if (isPassword && entry && entry.reprompt) {
+  const handleCopy = useCallback(async (val, label, entry, customDuration) => {
+    const isSecret = label === t('fieldPassword') ||
+                     label === t('fieldCardNumber') ||
+                     label === t('fieldCardCvv') ||
+                     label === t('fieldCardPin') ||
+                     label === t('fieldNote') ||
+                     label === t('typeNote') ||
+                     label === t('fieldSecureNoteContent');
+    if (isSecret && entry && entry.reprompt) {
       const ok = await verifyReprompt(entry);
       if (!ok) return;
     }
-    const textToCopy = isPassword && typeof val === 'object' ? memDecrypt(val) : String(val || '');
-    const duration = isPassword ? 45000 : 30000;
+    const textToCopy = typeof val === 'object' && val !== null ? memDecrypt(val) : String(val || '');
+    const duration = customDuration || (label === t('fieldCardCvv') || label === t('fieldCardPin') ? 20000 : (label === t('fieldPassword') || label === t('fieldNote') || label === t('fieldSecureNoteContent') ? 45000 : 30000));
     await copySecure(textToCopy, duration);
-    showAlert(t('alertCopied'), isPassword ? t('toastCopiedClipboard45s') : label + t('toastCopiedClipboard30s'));
+    let msg = label + t('toastCopiedClipboard30s');
+    if (label === t('fieldPassword')) {
+      msg = t('toastCopiedClipboard45s');
+    } else if (label === t('fieldCardNumber')) {
+      msg = t('toastCardCopied');
+    } else if (label === t('fieldCardCvv')) {
+      msg = t('toastCvvCopied');
+    } else if (label === t('fieldNote') || label === t('fieldSecureNoteContent')) {
+      msg = t('toastNoteCopied');
+    }
+    showAlert(t('alertCopied'), msg);
   }, [t, showAlert, verifyReprompt]);
 
   const togglePasswordVisibility = useCallback(async (entryOrId) => {
@@ -314,7 +337,8 @@ export default function VaultScreen({
   const handleSaveEntry = async (updatedEntry) => {
     const newEntries = [...entries];
     const index = newEntries.findIndex(e => e.id === updatedEntry.id);
-    if (index >= 0) {
+    const isEdit = index >= 0;
+    if (isEdit) {
       newEntries[index] = updatedEntry;
     } else {
       newEntries.push(updatedEntry);
@@ -324,6 +348,12 @@ export default function VaultScreen({
     const success = await onUpdateVaultData(payload);
     if (success) {
       setModalVisible(false);
+      let saveMsg = t('alertSaved');
+      if (!isEdit) {
+        if (updatedEntry.type === 'card') saveMsg = t('toastCardSaved');
+        else if (updatedEntry.type === 'note') saveMsg = t('toastNoteSaved');
+      }
+      showAlert(t('alertSuccess'), saveMsg);
     }
   };
 
