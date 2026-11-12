@@ -128,12 +128,12 @@ function AppInner() {
       const text = String(shareIntent.value || '').slice(0, 4096);
       const isUrl = text.startsWith('http://') || text.startsWith('https://');
       const title = String(shareIntent.meta?.title || '').slice(0, 256);
-      let parsedHost = 'Yeni Kayıt';
+      let parsedHost = t('newEntryDefaultTitle');
       if (isUrl) {
         try {
-          parsedHost = new URL(text).hostname.replace('www.', '') || 'Yeni Kayıt';
+          parsedHost = new URL(text).hostname.replace('www.', '') || t('newEntryDefaultTitle');
         } catch {
-          parsedHost = 'Yeni Kayıt';
+          parsedHost = t('newEntryDefaultTitle');
         }
       }
       
@@ -141,7 +141,7 @@ function AppInner() {
         site: title || parsedHost,
         url: isUrl ? text : '',
         notes: isUrl ? '' : text,
-        category: 'Diğer'
+        category: t('cat_other')
       });
       resetShareIntent();
     }
@@ -221,12 +221,12 @@ function AppInner() {
         if (backups.length > 0) {
           const restored = await restoreVaultBackup(backups[0].fileName);
           if (restored) {
-            showAlert('Kurtarma Başarılı', 'Kasa dosyanız bozuktu ancak otomatik olarak son sağlıklı yedeğe dönüldü. Tekrar giriş yapın.');
+            showAlert(t('recoverySuccessTitle'), t('recoveryAutoHealedBody'));
             setIsLoggingIn(false);
             return;
           }
         }
-        showAlert('Kritik Hata', 'Kasa dosyası bozulmuş ve kurtarılacak yedek bulunamadı.');
+        showAlert(t('criticalErrorTitle'), t('vaultCorruptedNoBackup'));
         setIsLoggingIn(false);
         return;
       }
@@ -248,7 +248,7 @@ function AppInner() {
         await SecureStore.deleteItemAsync('fuin_fail_count');
         await SecureStore.deleteItemAsync('fuin_lock_until');
         handleVaultErased();
-        showAlert(t('alertError'), 'Çok fazla hatalı deneme nedeniyle kasa silindi.');
+        showAlert(t('alertError'), t('vaultWipedTooManyAttempts'));
         setIsLoggingIn(false);
         return;
       }
@@ -720,7 +720,7 @@ function AppInner() {
       return;
     }
     if (!pendingPayload) {
-      showAlert(t('alertError'), 'Senkronizasyon verisi bulunamadı.');
+      showAlert(t('alertError'), t('syncPayloadMissing'));
       return;
     }
     await finalizeV2Import(pendingPayload, importMasterPassword);
@@ -942,7 +942,7 @@ function AppInner() {
   if (!isAppActive) {
     content = (
       <View style={{ flex: 1, backgroundColor: theme.bg, alignItems: 'center', justifyContent: 'center' }}>
-        <CustomText style={{ color: theme.muted, fontSize: 18 }}>FuinMobile Kilitli</CustomText>
+        <CustomText style={{ color: theme.muted, fontSize: 18 }}>{t('appLockedScreenText')}</CustomText>
       </View>
     );
   } else if (mode === 'lock') {
@@ -979,8 +979,6 @@ function AppInner() {
   } else if (mode === 'success') {
     content = <SuccessScreen onComplete={() => setMode('vault')} />;
   } else if (mode === 'sync') {
-    const progress = totalChunks > 0 ? Math.round((Object.keys(chunks).length / totalChunks) * 100) : 0;
-
     if (masterPasswordPrompt) {
       content = (
         <View style={{ flex: 1, backgroundColor: theme.bg, padding: 20, justifyContent: 'center' }}>
@@ -1211,26 +1209,6 @@ const getStyles = (theme) => StyleSheet.create({
     textShadowColor: 'rgba(0,0,0,0.8)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 4,
-  },
-  progressBox: {
-    backgroundColor: theme.card,
-    padding: 20,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: theme.border,
-    width: '100%',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  progressText: {
-    fontSize: 14,
-    color: theme.text,
-    marginBottom: 8,
-  },
-  progressPercent: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: theme.accent,
   },
   cancelBtn: {
     backgroundColor: 'rgba(0,0,0,0.6)',

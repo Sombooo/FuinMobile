@@ -315,6 +315,14 @@ const TRANSLATIONS = {
     // Recovery
     recoveryCreatedTitle: 'Kasa Oluşturuldu!',
     recoveryCreatedBody: 'Bu kurtarma anahtarını güvenli bir yere kaydedin. Şifrenizi unutursanız kasayı bu anahtarla açabilirsiniz.',
+    recoverySuccessTitle: 'Kurtarma Başarılı',
+    recoveryAutoHealedBody: 'Kasa dosyanız bozuktu ancak otomatik olarak son sağlıklı yedeğe dönüldü. Tekrar giriş yapın.',
+    criticalErrorTitle: 'Kritik Hata',
+    vaultCorruptedNoBackup: 'Kasa dosyası bozulmuş ve kurtarılacak yedek bulunamadı.',
+    vaultWipedTooManyAttempts: 'Çok fazla hatalı deneme nedeniyle kasa silindi.',
+    appLockedScreenText: 'FuinMobile Kilitli',
+    syncPayloadMissing: 'Senkronizasyon verisi bulunamadı.',
+    newEntryDefaultTitle: 'Yeni Kayıt',
 
     // In-App Self Updater
     updateBannerTitle: 'Yeni sürüm mevcut: v{version}',
@@ -647,6 +655,14 @@ const TRANSLATIONS = {
     // Recovery
     recoveryCreatedTitle: 'Vault Created!',
     recoveryCreatedBody: 'Save this recovery key in a safe place. If you forget your password, you can unlock the vault with this key.',
+    recoverySuccessTitle: 'Recovery Successful',
+    recoveryAutoHealedBody: 'Your vault file was corrupted, but it was automatically restored to the latest healthy backup. Please sign in again.',
+    criticalErrorTitle: 'Critical Error',
+    vaultCorruptedNoBackup: 'The vault file is corrupted and no backup was found to restore.',
+    vaultWipedTooManyAttempts: 'Vault erased due to too many failed attempts.',
+    appLockedScreenText: 'FuinMobile Locked',
+    syncPayloadMissing: 'Sync payload not found.',
+    newEntryDefaultTitle: 'New Entry',
 
     // In-App Self Updater
     updateBannerTitle: 'New version available: v{version}',

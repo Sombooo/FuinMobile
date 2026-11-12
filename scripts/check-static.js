@@ -64,6 +64,7 @@ const ALL_SOURCE_FILES = [
   'src/screens/VaultScreen.js',
   'src/screens/LockScreen.js',
   'src/screens/WhatsNewModal.js',
+  'src/screens/BackupHistoryModal.js',
   'src/components/VaultCardItem.js',
   'src/hooks/useVaultLifecycle.js',
   'src/hooks/useAutofillSync.js',

@@ -14,11 +14,12 @@ import * as ClipboardExpo from 'expo-clipboard';
 import EditModal from './EditModal';
 import HealthModal from './HealthModal';
 import WhatsNewModal from './WhatsNewModal';
+import BackupHistoryModal from './BackupHistoryModal';
 import { Feather } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as DocumentPicker from 'expo-document-picker';
 import * as Sharing from 'expo-sharing';
-import { getVaultBackups, restoreVaultBackup } from '../storage';
+import { getVaultBackups } from '../storage';
 
 import { Linking } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -311,9 +312,7 @@ export default function VaultScreen({
   }, [visiblePasswords, entries, verifyReprompt]);
 
   const handleSaveEntry = async (updatedEntry) => {
-    let newEntries = [...entries];
-    const finalEntries = newEntries || entries;
-    const allCategories = [...DEFAULT_CATEGORIES];
+    const newEntries = [...entries];
     const index = newEntries.findIndex(e => e.id === updatedEntry.id);
     if (index >= 0) {
       newEntries[index] = updatedEntry;
@@ -1087,62 +1086,17 @@ export default function VaultScreen({
       </View>
 
       {/* Backup Restore Modal */}
-      <Modal visible={backupModalVisible} transparent animationType="slide" onRequestClose={() => setBackupModalVisible(false)}>
-        <View style={{ flex: 1, backgroundColor: theme.bg, paddingTop: Platform.OS === 'ios' ? 40 : StatusBar.currentHeight }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: theme.border }}>
-            <TouchableOpacity 
-              onPress={() => setBackupModalVisible(false)} 
-              style={{ padding: 10, marginLeft: -10 }} 
-              hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
-              activeOpacity={0.7}
-              delayPressIn={0}
-            >
-              <CustomText style={{ color: theme.text, fontSize: 28, lineHeight: 28 }}>×</CustomText>
-            </TouchableOpacity>
-            <CustomText style={{ flex: 1, textAlign: 'center', color: theme.text, fontSize: 16, fontWeight: 'bold', letterSpacing: 2 }}>{t('backupModalTitle')}</CustomText>
-            <View style={{ width: 40 }} />
-          </View>
-          <ScrollView style={{ flex: 1, padding: 20 }} keyboardShouldPersistTaps="handled">
-            <CustomText style={{ color: theme.muted, fontSize: 13, marginBottom: 20, lineHeight: 20 }}>
-              {t('backupModalDesc')}
-            </CustomText>
-            
-            {backups.length === 0 ? (
-              <CustomText style={{ color: theme.muted, textAlign: 'center', marginTop: 40 }}>{t('backupEmpty')}</CustomText>
-            ) : (
-              backups.map(b => {
-                const date = new Date(b.timestamp);
-                const isToday = new Date().toDateString() === date.toDateString();
-                const dStr = isToday ? t('dateToday') + date.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : date.toLocaleString('tr-TR', { dateStyle: 'medium', timeStyle: 'short' });
-                
-                return (
-                  <TouchableOpacity key={b.fileName} style={[styles.settingsCard, { marginBottom: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]} onPress={() => {
-                    showAlert(t('alertRestoreTitle'), `${dStr}${t('alertRestoreBody')}`, [
-                      { text: t('btnCancel'), style: 'cancel' },
-                      { text: t('btnRestoreConfirm'), style: 'destructive', onPress: async () => {
-                        const success = await restoreVaultBackup(b.fileName);
-                        if (success) {
-                          showAlert(t('alertSuccess'), t('alertRestoreSuccessRelogin'));
-                          setBackupModalVisible(false);
-                          onLogout();
-                        } else {
-                          showAlert(t('alertError'), t('alertRestoreFailed'));
-                        }
-                      }}
-                    ]);
-                  }}>
-                    <View>
-                      <CustomText style={{ color: theme.text, fontSize: 15, fontWeight: 'bold' }}>{dStr}</CustomText>
-                      <CustomText style={{ color: theme.muted, fontSize: 11, marginTop: 4 }}>{b.fileName}</CustomText>
-                    </View>
-                    <CustomText style={{ color: theme.accent, fontWeight: 'bold' }}>{t('btnRestoreAction')}</CustomText>
-                  </TouchableOpacity>
-                );
-              })
-            )}
-          </ScrollView>
-        </View>
-      </Modal>
+      <BackupHistoryModal
+        visible={backupModalVisible}
+        backups={backups}
+        onClose={() => setBackupModalVisible(false)}
+        onRestored={onLogout}
+        theme={theme}
+        styles={styles}
+        lang={lang}
+        t={t}
+        showAlert={showAlert}
+      />
 
     </SafeAreaView>
   );
