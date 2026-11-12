@@ -8,7 +8,7 @@ import {
 } from './updateCore';
 
 const { FuinAppUpdaterModule } = NativeModules;
-const FALLBACK_APP_VERSION = '1.0.0-beta.9';
+const FALLBACK_APP_VERSION = '1.0.0-beta.10';
 const UPDATE_CHECK_TIMEOUT_MS = 8000;
 
 export const updateService = {
