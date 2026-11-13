@@ -15,7 +15,6 @@ const VaultCardItem = React.memo(function VaultCardItem({
   styles,
   t
 }) {
-  const type = item.type || 'login';
   const isCard = item.type === 'card';
   const isNote = item.type === 'note';
 
@@ -68,7 +67,7 @@ const VaultCardItem = React.memo(function VaultCardItem({
           {/* Cardholder name if present */}
           {(item.cardholderName || item.username) ? (
             <View style={localStyles.metaRow}>
-              <CustomText style={localStyles.fieldLabel}>{t('fieldCardholder')}</CustomText>
+              <CustomText style={[localStyles.fieldLabel, { color: theme.muted }]}>{t('fieldCardholder')}</CustomText>
               <TouchableOpacity
                 activeOpacity={0.6}
                 delayPressIn={0}
@@ -82,64 +81,56 @@ const VaultCardItem = React.memo(function VaultCardItem({
           ) : null}
 
           {/* Card Number Container */}
-          <View style={[localStyles.boxContainer, { backgroundColor: theme.surface || '#222019', borderColor: theme.border }]}>
+          <View style={[localStyles.boxContainer, { backgroundColor: theme.paper, borderColor: theme.border }]}>
             <View style={localStyles.boxHeader}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <CustomText style={localStyles.fieldLabel}>{t('fieldCardNumber')}</CustomText>
-                {cardBrand ? (
-                  <View style={localStyles.badge}>
-                    <CustomText style={[localStyles.badgeText, { color: theme.amber || '#c88040' }]}>{cardBrand}</CustomText>
-                  </View>
-                ) : null}
-              </View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <TouchableOpacity
-                  onPress={() => onTogglePw(item)}
-                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                  style={{ padding: 3 }}
-                  activeOpacity={0.6}
-                  delayPressIn={0}
-                >
-                  <Feather name={isPwVisible ? "eye-off" : "eye"} size={15} color={theme.muted} />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  activeOpacity={0.7}
-                  delayPressIn={0}
-                  style={localStyles.actionBtn}
-                  onPress={() => onCopy(item.cardNumber, t('fieldCardNumber'), item, 30000)}
-                >
-                  <Feather name="copy" size={11} color={theme.accent} />
-                  <CustomText style={[localStyles.actionBtnText, { color: theme.accent }]}>{t('btnCopyCardNum')}</CustomText>
-                </TouchableOpacity>
-              </View>
+              <CustomText style={[localStyles.fieldLabel, { color: theme.muted }]}>{t('fieldCardNumber')}</CustomText>
+              {cardBrand ? (
+                <View style={localStyles.badge}>
+                  <CustomText style={[localStyles.badgeText, { color: theme.amber || '#c88040' }]}>{cardBrand}</CustomText>
+                </View>
+              ) : null}
             </View>
 
-            <TouchableOpacity
-              activeOpacity={0.6}
-              delayPressIn={0}
-              onPress={() => onCopy(item.cardNumber, t('fieldCardNumber'), item, 30000)}
-              style={localStyles.numberTouch}
-            >
-              <CustomText
-                style={[
-                  localStyles.numberText,
-                  { color: theme.text, fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace' }
-                ]}
-                numberOfLines={1}
+            <View style={localStyles.numberRow}>
+              <TouchableOpacity
+                activeOpacity={0.6}
+                delayPressIn={0}
+                onPress={() => onCopy(item.cardNumber, t('fieldCardNumber'), item, 30000)}
+                style={localStyles.numberTouch}
               >
-                {isPwVisible
-                  ? (typeof item.cardNumber === 'object' ? memDecrypt(item.cardNumber) : item.cardNumber)
-                  : (cardLast4 ? `•••• •••• •••• ${cardLast4}` : '•••• •••• •••• ••••')}
-              </CustomText>
-            </TouchableOpacity>
+                <CustomText
+                  style={[
+                    localStyles.numberText,
+                    { color: theme.text, fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace' }
+                  ]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.85}
+                >
+                  {isPwVisible
+                    ? (typeof item.cardNumber === 'object' ? memDecrypt(item.cardNumber) : item.cardNumber)
+                    : (cardLast4 ? `•••• •••• •••• ${cardLast4}` : '•••• •••• •••• ••••')}
+                </CustomText>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => onTogglePw(item)}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                style={localStyles.eyeBtn}
+                activeOpacity={0.6}
+                delayPressIn={0}
+              >
+                <Feather name={isPwVisible ? "eye-off" : "eye"} size={16} color={theme.muted} />
+              </TouchableOpacity>
+            </View>
           </View>
 
           {/* Expiry, CVV & PIN Row */}
           {(item.cardExpiry || item.cardCvv || item.cardPin) && (
-            <View style={localStyles.cardFooter}>
+            <View style={[localStyles.cardFooter, { borderTopColor: theme.border }]}>
               {item.cardExpiry ? (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <CustomText style={localStyles.fieldLabel}>{t('fieldCardExpiryShort') || 'SKT'}:</CustomText>
+                  <CustomText style={[localStyles.fieldLabel, { color: theme.muted }]}>{t('fieldCardExpiryShort') || 'SKT'}:</CustomText>
                   <CustomText style={{ color: theme.text, fontSize: 13, fontWeight: 'bold' }}>{item.cardExpiry}</CustomText>
                 </View>
               ) : <View />}
@@ -149,7 +140,7 @@ const VaultCardItem = React.memo(function VaultCardItem({
                   <TouchableOpacity
                     activeOpacity={0.7}
                     delayPressIn={0}
-                    style={localStyles.actionBtn}
+                    style={[localStyles.actionBtn, { borderColor: 'rgba(90, 154, 110, 0.35)', backgroundColor: 'rgba(90, 154, 110, 0.08)' }]}
                     onPress={() => onCopy(item.cardCvv, t('fieldCardCvv'), item, 20000)}
                   >
                     <Feather name="shield" size={11} color={theme.accent} />
@@ -180,7 +171,7 @@ const VaultCardItem = React.memo(function VaultCardItem({
           <View style={localStyles.boxHeader}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <Feather name="file-text" size={12} color={theme.accent} />
-              <CustomText style={localStyles.fieldLabel}>{t('typeNote')}</CustomText>
+              <CustomText style={[localStyles.fieldLabel, { color: theme.muted }]}>{t('typeNote')}</CustomText>
             </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <TouchableOpacity
@@ -195,7 +186,7 @@ const VaultCardItem = React.memo(function VaultCardItem({
               <TouchableOpacity
                 activeOpacity={0.7}
                 delayPressIn={0}
-                style={localStyles.actionBtn}
+                style={[localStyles.actionBtn, { borderColor: 'rgba(90, 154, 110, 0.35)', backgroundColor: 'rgba(90, 154, 110, 0.08)' }]}
                 onPress={() => onCopy(item.secureNote, t('fieldNote'), item, 45000)}
               >
                 <Feather name="copy" size={11} color={theme.accent} />
@@ -207,7 +198,7 @@ const VaultCardItem = React.memo(function VaultCardItem({
           <TouchableOpacity
             activeOpacity={0.7}
             delayPressIn={0}
-            style={[localStyles.noteBox, { backgroundColor: theme.surface || '#222019', borderColor: theme.border }]}
+            style={[localStyles.noteBox, { backgroundColor: theme.paper, borderColor: theme.border }]}
             onPress={() => onTogglePw(item)}
           >
             <CustomText
@@ -287,7 +278,9 @@ const VaultCardItem = React.memo(function VaultCardItem({
 }, (prev, next) => {
   return prev.item === next.item &&
     prev.isPwVisible === next.isPwVisible &&
-    prev.theme === next.theme;
+    prev.theme === next.theme &&
+    prev.styles === next.styles &&
+    prev.t === next.t;
 });
 
 const localStyles = StyleSheet.create({
@@ -311,7 +304,6 @@ const localStyles = StyleSheet.create({
     fontSize: 11,
     fontWeight: 'bold',
     letterSpacing: 0.5,
-    opacity: 0.7,
     textTransform: 'uppercase'
   },
   boxContainer: {
@@ -326,27 +318,39 @@ const localStyles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 6
   },
+  numberRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10
+  },
   numberTouch: {
+    flex: 1,
     paddingVertical: 2
   },
   numberText: {
     fontSize: 15,
     fontWeight: '700',
-    letterSpacing: 1.2
+    letterSpacing: 1.1
+  },
+  eyeBtn: {
+    padding: 4,
+    justifyContent: 'center',
+    alignItems: 'center'
   },
   cardFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingTop: 6,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.05)'
+    paddingTop: 8,
+    marginTop: 2,
+    borderTopWidth: 1
   },
   badge: {
     backgroundColor: 'rgba(200, 128, 64, 0.15)',
     borderWidth: 1,
     borderColor: 'rgba(200, 128, 64, 0.4)',
-    paddingHorizontal: 4,
+    paddingHorizontal: 5,
     paddingVertical: 1,
     borderRadius: 3
   },
@@ -361,9 +365,7 @@ const localStyles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 4,
-    borderWidth: 1,
-    borderColor: 'rgba(90, 154, 110, 0.35)',
-    backgroundColor: 'rgba(90, 154, 110, 0.08)'
+    borderWidth: 1
   },
   actionBtnText: {
     fontSize: 11,

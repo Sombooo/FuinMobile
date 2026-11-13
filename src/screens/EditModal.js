@@ -631,7 +631,7 @@ const getStyles = (theme) => StyleSheet.create({
     gap: 6
   },
   typeTabActive: {
-    backgroundColor: theme.surface || theme.bg,
+    backgroundColor: theme.paper || theme.bg,
     borderWidth: 1,
     borderColor: theme.accent
   },
