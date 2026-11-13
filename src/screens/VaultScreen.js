@@ -306,6 +306,8 @@ export default function VaultScreen({
       msg = t('toastCardCopied');
     } else if (label === t('fieldCardCvv')) {
       msg = t('toastCvvCopied');
+    } else if (label === t('fieldCardPin')) {
+      msg = t('toastPinCopied');
     } else if (label === t('fieldNote') || label === t('fieldSecureNoteContent')) {
       msg = t('toastNoteCopied');
     }

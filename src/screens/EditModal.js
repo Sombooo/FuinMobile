@@ -247,7 +247,7 @@ export default function EditModal({ visible, entry, allCategories, onClose, onSa
               >
                 <Feather name="key" size={13} color={entryType === 'login' ? theme.accent : theme.muted} />
                 <CustomText style={[styles.typeTabText, entryType === 'login' && styles.typeTabTextActive]}>
-                  {t('typeLogin')}
+                  {t('tabLogin') || t('typeLogin')}
                 </CustomText>
               </TouchableOpacity>
 
@@ -259,7 +259,7 @@ export default function EditModal({ visible, entry, allCategories, onClose, onSa
               >
                 <Feather name="credit-card" size={13} color={entryType === 'card' ? (theme.amber || '#c88040') : theme.muted} />
                 <CustomText style={[styles.typeTabText, entryType === 'card' && { color: theme.amber || '#c88040', fontWeight: 'bold' }]}>
-                  {t('navCards')}
+                  {t('tabCards') || t('navCards')}
                 </CustomText>
               </TouchableOpacity>
 
@@ -271,7 +271,7 @@ export default function EditModal({ visible, entry, allCategories, onClose, onSa
               >
                 <Feather name="file-text" size={13} color={entryType === 'note' ? theme.accent : theme.muted} />
                 <CustomText style={[styles.typeTabText, entryType === 'note' && styles.typeTabTextActive]}>
-                  {t('navNotes')}
+                  {t('tabNotes') || t('navNotes')}
                 </CustomText>
               </TouchableOpacity>
             </View>
@@ -333,11 +333,11 @@ export default function EditModal({ visible, entry, allCategories, onClose, onSa
                   keyboardType="numeric"
                 />
 
-                <View style={styles.row}>
-                  <View style={{ flex: 1, marginRight: 15 }}>
-                    <CustomText style={styles.label}>{t('fieldCardExpiry')}</CustomText>
+                <View style={styles.gridRow}>
+                  <View style={styles.gridCol}>
+                    <CustomText style={styles.label} numberOfLines={1}>{t('fieldCardExpiry')}</CustomText>
                     <CustomTextInput
-                      style={styles.input}
+                      style={[styles.input, styles.fixedInputHeight]}
                       value={cardExpiry}
                       onChangeText={handleCardExpiryChange}
                       placeholder={t('fieldCardExpiryPh')}
@@ -346,9 +346,9 @@ export default function EditModal({ visible, entry, allCategories, onClose, onSa
                       maxLength={5}
                     />
                   </View>
-                  <View style={{ flex: 1 }}>
-                    <CustomText style={styles.label}>{t('fieldCardCvv')}</CustomText>
-                    <View style={styles.pwContainer}>
+                  <View style={styles.gridCol}>
+                    <CustomText style={styles.label} numberOfLines={1}>{t('fieldCardCvv')}</CustomText>
+                    <View style={[styles.pwContainer, styles.fixedInputHeight]}>
                       <CustomTextInput
                         style={styles.pwInput}
                         value={cardCvv}
@@ -362,18 +362,18 @@ export default function EditModal({ visible, entry, allCategories, onClose, onSa
                       <TouchableOpacity
                         onPress={() => setShowCvv(!showCvv)}
                         style={styles.eyeBtn}
-                        hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
+                        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                         activeOpacity={0.7}
                         delayPressIn={0}
                       >
-                        <Feather name={showCvv ? "eye-off" : "eye"} size={18} color={theme.muted} />
+                        <Feather name={showCvv ? "eye-off" : "eye"} size={16} color={theme.muted} />
                       </TouchableOpacity>
                     </View>
                   </View>
                 </View>
 
                 <CustomText style={styles.label}>{t('fieldCardPin')}</CustomText>
-                <View style={styles.pwContainer}>
+                <View style={[styles.pwContainer, styles.fixedInputHeight, { marginBottom: 16 }]}>
                   <CustomTextInput
                     style={styles.pwInput}
                     value={cardPin}
@@ -387,11 +387,11 @@ export default function EditModal({ visible, entry, allCategories, onClose, onSa
                   <TouchableOpacity
                     onPress={() => setShowPin(!showPin)}
                     style={styles.eyeBtn}
-                    hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
+                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                     activeOpacity={0.7}
                     delayPressIn={0}
                   >
-                    <Feather name={showPin ? "eye-off" : "eye"} size={18} color={theme.muted} />
+                    <Feather name={showPin ? "eye-off" : "eye"} size={16} color={theme.muted} />
                   </TouchableOpacity>
                 </View>
 
@@ -411,16 +411,32 @@ export default function EditModal({ visible, entry, allCategories, onClose, onSa
             {/* ── SECURE NOTE FIELDS ── */}
             {entryType === 'note' && (
               <>
-                <CustomText style={styles.label}>{t('fieldSecureNoteContent')}</CustomText>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <CustomText style={styles.label}>{t('fieldSecureNoteContent')}</CustomText>
+                  {secureNote ? (
+                    <CustomText style={{ color: theme.muted, fontSize: 11 }}>
+                      {`${secureNote.length} ${t('chars') || 'karakter'}`}
+                    </CustomText>
+                  ) : null}
+                </View>
                 <CustomTextInput
-                  style={[styles.input, { height: 180 }]}
+                  style={[
+                    styles.input,
+                    {
+                      minHeight: 180,
+                      maxHeight: 280,
+                      textAlignVertical: 'top',
+                      fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+                      fontSize: 14,
+                      lineHeight: 20
+                    }
+                  ]}
                   value={secureNote}
                   onChangeText={setSecureNote}
                   placeholder={t('fieldSecureNoteContentPh')}
                   placeholderTextColor={theme.border2}
                   multiline
                   numberOfLines={8}
-                  textAlignVertical="top"
                 />
               </>
             )}
@@ -633,6 +649,9 @@ const getStyles = (theme) => StyleSheet.create({
   input: { backgroundColor: theme.card, color: theme.text, padding: 12, borderRadius: 6, fontSize: 15, marginBottom: 16, borderWidth: 1, borderColor: theme.border },
   textArea: { height: 100 },
   row: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
+  gridRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 16 },
+  gridCol: { flex: 1 },
+  fixedInputHeight: { height: 48, marginBottom: 0 },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
 
   brandBadge: {
