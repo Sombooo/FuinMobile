@@ -11,6 +11,7 @@ const VaultCardItem = React.memo(function VaultCardItem({
   onCopy,
   onOpenEdit,
   onOpenUrl,
+  onOpenTotp,
   theme,
   styles,
   t
@@ -257,6 +258,21 @@ const VaultCardItem = React.memo(function VaultCardItem({
             </View>
           </View>
 
+          {item.totp && onOpenTotp ? (
+            <View style={[styles.row, { marginTop: 4 }]}>
+              <CustomText style={styles.label}>2FA</CustomText>
+              <TouchableOpacity
+                activeOpacity={0.7}
+                delayPressIn={0}
+                style={[localStyles.actionBtn, { borderColor: 'rgba(90, 154, 110, 0.4)', backgroundColor: 'rgba(90, 154, 110, 0.12)', paddingHorizontal: 10, paddingVertical: 5 }]}
+                onPress={() => onOpenTotp(item)}
+              >
+                <Feather name="clock" size={12} color={theme.accent} />
+                <CustomText style={[localStyles.actionBtnText, { color: theme.accent, fontSize: 12 }]}>{t('btnShow2FA')}</CustomText>
+              </TouchableOpacity>
+            </View>
+          ) : null}
+
           {item.url && !/^androidapp:\/\//i.test(String(item.url).trim()) ? (
             <View style={[styles.row, { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: theme.border }]}>
               <CustomText style={styles.label}>{t('fieldUrl')}</CustomText>
@@ -278,6 +294,7 @@ const VaultCardItem = React.memo(function VaultCardItem({
 }, (prev, next) => {
   return prev.item === next.item &&
     prev.isPwVisible === next.isPwVisible &&
+    prev.onOpenTotp === next.onOpenTotp &&
     prev.theme === next.theme &&
     prev.styles === next.styles &&
     prev.t === next.t;

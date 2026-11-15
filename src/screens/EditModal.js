@@ -1,7 +1,8 @@
 import CustomTextInput from '../components/CustomTextInput';
 import CustomText from '../components/CustomText';
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { StyleSheet, View, TouchableOpacity, Modal, ScrollView, Switch, KeyboardAvoidingView, Platform, SafeAreaView, StatusBar } from 'react-native';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useTheme } from '../theme';
 import GeneratorModal from './GeneratorModal';
 import { Feather } from '@expo/vector-icons';
@@ -10,8 +11,9 @@ import { useAlert } from '../components/CustomAlert';
 import { memDecrypt } from '../services/sessionSecurity';
 import { copySecure } from '../clipboardManager';
 import { detectCardBrand, formatCardNumber, formatCardExpiry } from '../services/cardFormatter';
+import { parseOtpAuthUri } from '../services/totpEngine';
 
-export default function EditModal({ visible, entry, allCategories, onClose, onSave, onDelete, onRestore }) {
+export default function EditModal({ visible, entry, allCategories, onClose, onSave, onDelete, onRestore, onOpenTotpScanner }) {
   const { theme } = useTheme();
   const styles = useMemo(() => getStyles(theme), [theme]);
   const { t } = useI18n();
@@ -47,9 +49,26 @@ export default function EditModal({ visible, entry, allCategories, onClose, onSa
   const [catVisible, setCatVisible] = useState(false);
   const [historyVisible, setHistoryVisible] = useState(false);
   const [newCatName, setNewCatName] = useState('');
+  const [qrScannerVisible, setQrScannerVisible] = useState(false);
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const qrScanLockRef = useRef(false);
+  const prevVisibleRef = useRef(false);
+  const prevEntryIdRef = useRef(null);
 
   useEffect(() => {
-    if (visible) {
+    const currentEntryId = entry ? entry.id : null;
+    const justOpened = visible && !prevVisibleRef.current;
+    const entrySwitched = visible && prevEntryIdRef.current !== currentEntryId;
+    prevVisibleRef.current = !!visible;
+    prevEntryIdRef.current = currentEntryId;
+
+    if (!visible) {
+      setQrScannerVisible(false);
+      qrScanLockRef.current = false;
+      return;
+    }
+
+    if (justOpened || entrySwitched) {
       if (entry) {
         const type = entry.type || 'login';
         setEntryType(type);
@@ -102,8 +121,60 @@ export default function EditModal({ visible, entry, allCategories, onClose, onSa
       setShowCvv(false);
       setShowPin(false);
       setHistoryVisible(false);
+      setQrScannerVisible(false);
+      qrScanLockRef.current = false;
     }
   }, [visible, entry, t]);
+
+  const applyScannedTotpData = (rawData) => {
+    if (qrScanLockRef.current) return false;
+    qrScanLockRef.current = true;
+    const parsed = parseOtpAuthUri(typeof rawData === 'string' ? rawData : String(rawData || ''));
+    if (!parsed.valid) {
+      showAlert(t('alertError'), t('totpInvalidQr'));
+      setTimeout(() => { qrScanLockRef.current = false; }, 1500);
+      return false;
+    }
+    setHasTotp(true);
+    setTotp(parsed.secret);
+    if (parsed.issuer) {
+      setSite((prev) => (prev && prev.trim() ? prev : parsed.issuer));
+    }
+    if (parsed.account) {
+      setUsername((prev) => (prev && prev.trim() ? prev : parsed.account));
+    }
+    setQrScannerVisible(false);
+    showAlert(t('alertSuccess'), t('totpScannedMsg'));
+    return true;
+  };
+
+  const openTotpScanner = async () => {
+    qrScanLockRef.current = false;
+    if (typeof onOpenTotpScanner === 'function') {
+      setQrScannerVisible(true);
+      onOpenTotpScanner({
+        onScanned: (rawData) => applyScannedTotpData(rawData),
+        onCancel: () => {
+          qrScanLockRef.current = false;
+          setQrScannerVisible(false);
+        }
+      });
+      return;
+    }
+    if (!cameraPermission?.granted) {
+      const permRes = await requestCameraPermission();
+      if (!permRes?.granted) {
+        showAlert(t('alertError'), t('cameraPermissionRequired'));
+        return;
+      }
+    }
+    setQrScannerVisible(true);
+  };
+
+  const handleTotpBarcodeScanned = ({ data }) => {
+    if (!qrScannerVisible) return;
+    applyScannedTotpData(data);
+  };
 
   const cardBrandInfo = useMemo(() => {
     return detectCardBrand(cardNumber);
@@ -222,7 +293,8 @@ export default function EditModal({ visible, entry, allCategories, onClose, onSa
   };
 
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="formSheet" onRequestClose={onClose}>
+    <>
+      <Modal visible={visible && !qrScannerVisible} animationType="slide" presentationStyle="formSheet" onRequestClose={onClose}>
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
           <TouchableOpacity onPress={onClose} activeOpacity={0.7} delayPressIn={0}>
@@ -478,8 +550,14 @@ export default function EditModal({ visible, entry, allCategories, onClose, onSa
 
                 {hasTotp && (
                   <>
-                    <CustomText style={[styles.label, { marginTop: 10 }]}>{t('toggle2FASub')}</CustomText>
-                    <CustomTextInput style={styles.input} value={totp} onChangeText={setTotp} placeholder="JBSWY3DPEHPK3PXP" placeholderTextColor={theme.border2} autoCapitalize="none" />
+                    <View style={[styles.rowBetween, { marginTop: 10 }]}>
+                      <CustomText style={styles.label}>{t('toggle2FASub')}</CustomText>
+                      <TouchableOpacity onPress={openTotpScanner} style={styles.genBtn} activeOpacity={0.7} delayPressIn={0}>
+                        <Feather name="camera" size={14} color={theme.accent} />
+                        <CustomText style={styles.genText}>{t('btnScanTotpQR')}</CustomText>
+                      </TouchableOpacity>
+                    </View>
+                    <CustomTextInput style={styles.input} value={totp} onChangeText={setTotp} placeholder="JBSWY3DPEHPK3PXP" placeholderTextColor={theme.border2} autoCapitalize="none" autoCorrect={false} />
                   </>
                 )}
 
@@ -596,7 +674,36 @@ export default function EditModal({ visible, entry, allCategories, onClose, onSa
         </View>
       </Modal>
 
-    </Modal>
+      </Modal>
+
+      {visible && qrScannerVisible && !onOpenTotpScanner && (
+        <View style={styles.qrScannerOverlay}>
+          <View style={{ flex: 1 }}>
+            <CameraView
+              style={StyleSheet.absoluteFillObject}
+              facing="back"
+              onBarcodeScanned={handleTotpBarcodeScanned}
+              barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
+            />
+            <View style={styles.qrReticleContainer} pointerEvents="none">
+              <View style={styles.qrReticleBox} />
+            </View>
+          </View>
+          <View style={styles.qrBottomBar}>
+            <CustomText style={styles.qrScannerTitle}>{t('totpScannerTitle')}</CustomText>
+            <CustomText style={styles.qrScannerSub}>{t('totpScannerSub')}</CustomText>
+            <TouchableOpacity
+              style={styles.qrCancelBtn}
+              activeOpacity={0.7}
+              delayPressIn={0}
+              onPress={() => { qrScanLockRef.current = false; setQrScannerVisible(false); }}
+            >
+              <CustomText style={styles.qrCancelText}>{t('btnCancel')}</CustomText>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+    </>
   );
 }
 
@@ -689,5 +796,62 @@ const getStyles = (theme) => StyleSheet.create({
   catModal: { backgroundColor: theme.card, width: '100%', borderRadius: 12, padding: 20, borderWidth: 1, borderColor: theme.border },
   catTitle: { color: theme.text, fontSize: 18, fontWeight: 'bold', textAlign: 'center' },
   catItem: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: theme.border2 },
-  catItemText: { color: theme.text, fontSize: 16 }
+  catItemText: { color: theme.text, fontSize: 16 },
+
+  // 2FA QR Scanner Overlay
+  qrScannerOverlay: {
+    ...StyleSheet.absoluteFillObject
+  },
+  qrReticleContainer: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  qrReticleBox: {
+    width: 220,
+    height: 220,
+    borderWidth: 2,
+    borderColor: theme.accent,
+    borderRadius: 16,
+    backgroundColor: 'transparent'
+  },
+  qrBottomBar: {
+    backgroundColor: theme.paper,
+    borderTopWidth: 1,
+    borderColor: theme.border,
+    paddingHorizontal: 24,
+    paddingTop: 20,
+    paddingBottom: Platform.OS === 'ios' ? 32 : 24,
+    alignItems: 'center'
+  },
+  qrScannerTitle: {
+    color: theme.text,
+    fontSize: 15,
+    fontWeight: 'bold',
+    letterSpacing: 1,
+    marginBottom: 6,
+    textAlign: 'center'
+  },
+  qrScannerSub: {
+    color: theme.muted,
+    fontSize: 13,
+    textAlign: 'center',
+    marginBottom: 18
+  },
+  qrCancelBtn: {
+    width: '100%',
+    maxWidth: 320,
+    minHeight: 44,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: theme.border,
+    backgroundColor: theme.card,
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  qrCancelText: {
+    color: theme.text,
+    fontSize: 14,
+    fontWeight: '600'
+  }
 });

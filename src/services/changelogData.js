@@ -6,11 +6,64 @@
 
 const CHANGELOG_ENTRIES = [
   {
+    version: '1.0.0-beta.11',
+    tag: 'v1.0.0-beta.11',
+    date: 'Kasım 2026',
+    dateEn: 'November 2026',
+    isCurrent: true,
+    title: '2FA QR Tarayıcı, Canlı TOTP, Tek Adım Biyometrik Kilit & Taşınabilir Yedek Eşliği',
+    titleEn: '2FA QR Scanner, Live TOTP, Single-Step Biometric Unlock & Portable Backup Parity',
+    summary: '2FA otpauth:// QR kamera tarayıcı, canlı 30 sn TOTP kodu gösterimi, tek adım biyometrik kilit açma, çapraz platform .fuin / CSV / JSON kart-not içe aktarma ve LAN Eşitleme Hotspot rehberliği sunar.',
+    summaryEn: 'Introduces 2FA otpauth:// QR camera scanner, live 30s TOTP display, single-step biometric unlock, cross-platform .fuin / CSV / JSON card & note import parity, and LAN Sync AP Isolation / Hotspot guidance.',
+    highlights: [
+      {
+        badge: 'mobile',
+        badgeText: '2FA & KAMERA',
+        badgeTextEn: '2FA & CAMERA',
+        icon: 'smartphone',
+        title: '2FA QR Kamera Tarayıcı & Canlı TOTP Sayacı',
+        titleEn: '2FA QR Camera Scanner & Live TOTP Countdown',
+        desc: 'Kayıt düzenlerken tek dokunuşla otpauth:// doğrulayıcı QR kodu tarama, tam ekran düzeltilmiş Android kamera görünümü ve kart üzerinde canlı 30 sn TOTP kodu eklendi.',
+        descEn: 'Added one-tap otpauth:// authenticator QR scanning, fixed full-screen Android camera layout, and live 30s TOTP countdown codes directly on vault cards.'
+      },
+      {
+        badge: 'crypto',
+        badgeText: 'BİYOMETRİK & .FUIN',
+        badgeTextEn: 'BIOMETRIC & .FUIN',
+        icon: 'key',
+        title: 'Tek Adım Biyometrik Kilit & Çapraz .fuin Yedekleme',
+        titleEn: 'Single-Step Biometric Unlock & Portable .fuin Backup',
+        desc: 'Çift parmak izi/Face ID istemi tek adıma indirildi; Argon2id + AES-256-GCM şifreli .fuin yedek dosyaları Masaüstü ile tamamen uyumlu hale getirildi.',
+        descEn: 'Streamlined unlock to a single biometric prompt and enabled full Argon2id + AES-256-GCM encrypted .fuin backup portability with Fuin Desktop.'
+      },
+      {
+        badge: 'storage',
+        badgeText: 'İÇE AKTAR',
+        badgeTextEn: 'IMPORTERS',
+        icon: 'database',
+        title: 'Chrome CSV & JSON Kart/Not İçe Aktarma Eşliği',
+        titleEn: 'Chrome CSV & JSON Card/Note Import Parity',
+        desc: 'Bitwarden, 1Password ve Chrome CSV/JSON dışa aktarımlarından Kredi Kartı ve Güvenli Not kayıtları doğrudan Fuin Mobile\'a aktarılabilir.',
+        descEn: 'Import Credit Cards and Secure Notes directly from Bitwarden, 1Password, and Chrome CSV/JSON exports.'
+      },
+      {
+        badge: 'security',
+        badgeText: 'EŞİTLEME',
+        badgeTextEn: 'SYNC',
+        icon: 'shield-check',
+        title: 'AP İzolasyonu (Hotspot) Rehberliği',
+        titleEn: 'LAN Sync AP Isolation Guidance',
+        desc: 'Kurumsal/yurt Wi-Fi ağlarında eşleşme ve eşitleme uyarılarına Kişisel Erişim Noktası (Hotspot) ipucu eklendi.',
+        descEn: 'Added Personal Hotspot guidance to pairing and sync failure alerts when corporate/dorm Wi-Fi uses AP Isolation.'
+      }
+    ]
+  },
+  {
     version: '1.0.0-beta.10',
     tag: 'v1.0.0-beta.10',
     date: 'Kasım 2026',
     dateEn: 'November 2026',
-    isCurrent: true,
+    isCurrent: false,
     title: 'Kredi Kartı & Güvenli Not Kasası, Otomatik Formatlama ve Kurumsal Güvenlik Denetimi',
     titleEn: 'Credit Card & Secure Note Vault, Auto-Formatting, and Enterprise Security Audit',
     summary: 'Kredi kartı ve şifreli güvenli not kasa türleri, otomatik 4\'lü kart numarası/CVV/SKT formatlayıcı, dinamik TR/EN anlık dil desteği ve kurumsal seviye siber güvenlik denetimi doğrulaması getirir.',

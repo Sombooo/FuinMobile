@@ -48,7 +48,7 @@ export const autofillService = {
 
     try {
       const sanitized = entries
-        .filter((e) => e && !e.isDeleted && !e.deletedAt && (e.password || e.username))
+        .filter((e) => e && !e.isDeleted && !e.deletedAt && (!e.type || e.type === 'login') && (e.password || e.username))
         .map((e, index) => {
           let domain = '';
           const urls = [];

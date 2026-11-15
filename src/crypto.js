@@ -22,18 +22,21 @@ const PARALLELISM = 1;      // 1 lane (optimal for single-threaded mobile JSI)
 // ═══════════════════════════════════════════════════════════════════
 // LOCAL VAULT ENCRYPTION
 // ═══════════════════════════════════════════════════════════════════
-export async function deriveLocalKey(password, saltBuffer) {
-  // Argon2 is fully supported now since it's just local (no desktop discrepancy)
+export async function deriveArgonKeyWithParams(password, saltBuffer, memory, iterations, parallelism) {
   const saltHex = saltBuffer.toString('hex');
   const result = await Argon2(password, saltHex, {
-    iterations: TIME_COST,
-    memory: MEM_COST,
-    parallelism: PARALLELISM,
+    iterations,
+    memory,
+    parallelism,
     hashLength: 32,
     mode: 'argon2id',
     saltEncoding: 'hex'
   });
   return Buffer.from(result.rawHash, 'hex');
+}
+
+export async function deriveLocalKey(password, saltBuffer) {
+  return deriveArgonKeyWithParams(password, saltBuffer, MEM_COST, TIME_COST, PARALLELISM);
 }
 
 export async function encryptLocalVault(vaultJsonString, password) {
@@ -64,9 +67,9 @@ export async function encryptLocalVault(vaultJsonString, password) {
   }
 }
 
-export async function decryptLocalVault(b64Packet, password) {
+async function decryptPacketWithArgonParams(b64Packet, password, memory, iterations, parallelism) {
   if (typeof b64Packet !== 'string') throw new Error('Geçersiz veri tipi');
-  if (b64Packet.length < 80 || b64Packet.length > 13981013) {
+  if (b64Packet.length < 80 || b64Packet.length > 26843545) {
     throw new Error('Lokal kasa dosya boyutu geçersiz');
   }
 
@@ -76,21 +79,22 @@ export async function decryptLocalVault(b64Packet, password) {
 
   try {
     payload = Buffer.from(b64Packet, 'base64');
-    
+    if (payload.length < 60) throw new Error('Geçersiz paket boyutu');
+
     const localSalt = payload.subarray(0, 32);
     const iv = payload.subarray(32, 44);
     const authTag = payload.subarray(44, 60);
     const ciphertext = payload.subarray(60);
-    
-    localKey = await deriveLocalKey(password, localSalt);
-    
+
+    localKey = await deriveArgonKeyWithParams(password, localSalt, memory, iterations, parallelism);
+
     const decipher = crypto.createDecipheriv('aes-256-gcm', localKey, iv);
     decipher.setAuthTag(authTag);
-    
+
     const dec1 = decipher.update(ciphertext);
     const dec2 = decipher.final();
     decrypted = Buffer.concat([dec1, dec2]);
-    
+
     return decrypted.toString('utf8');
   } finally {
     if (localKey) {
@@ -103,4 +107,61 @@ export async function decryptLocalVault(b64Packet, password) {
       try { decrypted.fill(0); } catch {}
     }
   }
+}
+
+export async function decryptLocalVault(b64Packet, password) {
+  if (typeof b64Packet === 'string' && b64Packet.length > 13981013) {
+    throw new Error('Lokal kasa dosya boyutu geçersiz');
+  }
+  return decryptPacketWithArgonParams(b64Packet, password, MEM_COST, TIME_COST, PARALLELISM);
+}
+
+export function extractFuinBackupEnvelope(rawContent) {
+  const trimmed = String(rawContent || '').trim();
+  let ciphertext = '';
+  let kdf = null;
+  if (trimmed.startsWith('{') || trimmed.startsWith('"')) {
+    const parsedJson = JSON.parse(trimmed);
+    if (typeof parsedJson === 'string') {
+      ciphertext = parsedJson;
+    } else if (parsedJson && typeof parsedJson.ciphertext === 'string') {
+      ciphertext = parsedJson.ciphertext;
+      if (typeof parsedJson.kdf === 'string') kdf = parsedJson.kdf;
+    } else if (parsedJson && typeof parsedJson.data === 'string' && !parsedJson.iv) {
+      ciphertext = parsedJson.data;
+    }
+  } else {
+    ciphertext = trimmed;
+  }
+  if (typeof ciphertext !== 'string' || ciphertext.length < 80) {
+    throw new Error('invalid-fuin-format');
+  }
+  return { ciphertext, kdf };
+}
+
+export async function encryptFuinBackupEnvelope(vaultJsonString, password) {
+  const ciphertext = await encryptLocalVault(vaultJsonString, password);
+  return JSON.stringify({
+    format: 'fuin-encrypted-backup',
+    version: 1,
+    kdf: 'argon2id-64m-3t-1p',
+    exportedAt: Date.now(),
+    ciphertext,
+  }, null, 2);
+}
+
+export async function decryptFuinBackup(rawOrCiphertext, password, knownKdf = null) {
+  let ciphertext = rawOrCiphertext;
+  let kdf = knownKdf;
+  if (!kdf && typeof rawOrCiphertext === 'string' && rawOrCiphertext.trim().startsWith('{')) {
+    ({ ciphertext, kdf } = extractFuinBackupEnvelope(rawOrCiphertext));
+  }
+  const useMobileParams = kdf === 'argon2id-64m-3t-1p';
+  return decryptPacketWithArgonParams(
+    ciphertext,
+    password,
+    useMobileParams ? MEM_COST : 131072,
+    useMobileParams ? TIME_COST : 4,
+    1
+  );
 }

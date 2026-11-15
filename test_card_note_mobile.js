@@ -196,7 +196,7 @@ test('7. EditModal supports type switching and renders card/note fields', () => 
   assert.ok(modalSource.includes('typeSelector'), 'Must render type selector');
 });
 
-test('8. VaultCardItem renders distinct UI for cards, notes, and logins', () => {
+test('8. VaultCardItem renders distinct UI for cards, notes, and logins + 2FA pill', () => {
   const cardItemSource = fs.readFileSync(path.join(__dirname, 'src', 'components', 'VaultCardItem.js'), 'utf8');
 
   assert.ok(cardItemSource.includes("item.type === 'card'"), 'Must check item.type === card');
@@ -205,6 +205,70 @@ test('8. VaultCardItem renders distinct UI for cards, notes, and logins', () => 
   assert.ok(cardItemSource.includes('name="file-text"'), 'Must render file-text Feather icon');
   assert.ok(cardItemSource.includes('btnCopyCvv'), 'Must provide CVV copy button');
   assert.ok(cardItemSource.includes('btnCopyNote'), 'Must provide Note copy button');
+  assert.ok(cardItemSource.includes('onOpenTotp'), 'Must support 2FA live TOTP trigger');
+});
+
+test('9. Mobile JSON & Chrome CSV importers preserve cards/notes and support Excel ; delimiter', () => {
+  const FuinImporters = require('./src/services/importers');
+  const jsonRes = FuinImporters.importJSON(JSON.stringify({
+    type: 'fuin/vault',
+    entries: [
+      { id: 'c1234567890', type: 'card', site: 'İş Bankası', cardNumber: '4543 1111 2222 3333', cardCvv: '123' },
+      { id: 'n1234567890', type: 'note', site: 'Kurtarma Notu', secureNote: 'gizli metin' }
+    ]
+  }));
+  assert.strictEqual(jsonRes.count, 2);
+  assert.strictEqual(jsonRes.entries[0].type, 'card');
+  assert.strictEqual(jsonRes.entries[1].type, 'note');
+
+  const csvRes = FuinImporters.importCSV('name;url;username;password;note\n;android://x/y+z==@com.spotify.music/;ali;spPass9!;Müzik');
+  assert.strictEqual(csvRes.format, 'chrome');
+  assert.strictEqual(csvRes.count, 1);
+  assert.strictEqual(csvRes.entries[0].site, 'com.spotify.music');
+});
+
+test('10. Autofill service excludes non-login items and TotpEngine supports custom provider', () => {
+  const afSrc = fs.readFileSync(path.join(__dirname, 'src', 'services', 'autofillService.js'), 'utf8');
+  assert.ok(afSrc.includes("!e.type || e.type === 'login'"), 'Autofill syncVault must exclude non-login entries');
+
+  const totp = require('./src/services/totpEngine');
+  const nodeCrypto = require('crypto');
+  totp.setCryptoProvider(nodeCrypto, Buffer);
+  const code = totp.generateTOTPSync('GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ', { timestamp: 59, digits: 8 });
+  totp.setCryptoProvider(null, null);
+  assert.strictEqual(code, '94287082');
+});
+
+test('11. New Mobile 2FA, QR scanner, and .fuin backup i18n keys have 1:1 TR/EN parity', () => {
+  const i18nSource = fs.readFileSync(path.join(__dirname, 'src', 'i18n.js'), 'utf8');
+  for (const k of [
+    'btnShow2FA', 'totpModalTitle', 'toastTotpCopied',
+    'btnScanTotpQR', 'totpScannerTitle', 'totpScannerSub', 'totpInvalidQr', 'totpScannedMsg',
+    'ioExportEncBtn', 'ioImportEncBtn', 'ioAllDuplicatesOrSkipped', 'alertInfo', 'btnClose'
+  ]) {
+    const matches = i18nSource.match(new RegExp(`\\b${k}\\s*:`, 'g'));
+    assert.ok(matches && matches.length >= 2, `Key '${k}' missing TR/EN parity`);
+  }
+});
+
+test('12. Mobile parseOtpAuthUri extracts otpauth://totp parameters and EditModal wires QR scanner', () => {
+  const totp = require('./src/services/totpEngine');
+  const parsed = totp.parseOtpAuthUri('otpauth://totp/Proton:alice@pm.me?secret=JBSWY3DPEHPK3PXP&issuer=Proton');
+  assert.strictEqual(parsed.valid, true);
+  assert.strictEqual(parsed.secret, 'JBSWY3DPEHPK3PXP');
+  assert.strictEqual(parsed.issuer, 'Proton');
+  assert.strictEqual(parsed.account, 'alice@pm.me');
+  assert.strictEqual(totp.parseOtpAuthUri('https://evil.example/qr').valid, false);
+
+  const editModalSrc = fs.readFileSync(path.join(__dirname, 'src', 'screens', 'EditModal.js'), 'utf8');
+  const appSrc = fs.readFileSync(path.join(__dirname, 'App.js'), 'utf8');
+  assert.ok(editModalSrc.includes('CameraView'), 'EditModal should support CameraView fallback');
+  assert.ok(editModalSrc.includes('parseOtpAuthUri'), 'EditModal should parse scanned 2FA QR codes');
+  assert.ok(editModalSrc.includes('visible={visible && !qrScannerVisible}'), 'EditModal must hide Modal while camera is active on Android');
+  assert.ok(appSrc.includes('totpScannerVisible') && appSrc.includes('onOpenTotpScanner'), 'App.js must mount root non-Modal 2FA CameraView overlay');
+  assert.ok(!/transform:\s*[^;\n]*(undefined|null)/.test(appSrc), 'Animated transform must never pass undefined/null (processTransform.forEach crash)');
+  assert.ok(appSrc.includes('renderFullScreenQrScanner') && /<CameraView[\s\S]*?style=\{\{\s*flex:\s*1\s*\}\}/.test(appSrc), 'CameraView must use direct flex: 1 layout on Android');
+  assert.ok(appSrc.includes('isScannerOpen') && !/\{isSyncCameraActive\s*&&\s*\(\s*<View\s+style=\{StyleSheet\.absoluteFill\}/.test(appSrc), 'Scanner must not be nested inside StyleSheet.absoluteFill overlay');
 });
 
 console.log('═'.repeat(75));

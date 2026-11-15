@@ -1,13 +1,13 @@
 import CustomTextInput from './src/components/CustomTextInput';
 import CustomText from './src/components/CustomText';
 import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, Alert, AppState, TextInput, Animated, LayoutAnimation, Platform, UIManager } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, Alert, AppState, TextInput, Animated, LayoutAnimation, Platform, UIManager, BackHandler } from 'react-native';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { encryptLocalVault, decryptLocalVault } from './src/crypto';
 import { saveVault, loadVault, clearVault, saveVaultBackup, getSyncState, setSyncState, setHasLocalEdits, runStorageDiagnostics } from './src/storage';
 import { ChunkAssembler, processSyncEnvelope } from './src/sync-v2-mobile';
@@ -43,10 +43,13 @@ function AppInner() {
   });
 
   const { theme } = useTheme();
+  const insets = useSafeAreaInsets();
   const styles = getStyles(theme);
   const [password, setPassword] = useState('');
   const [mode, setMode] = useState('lock');
   const modeAnim = useRef(new Animated.Value(1)).current;
+  const [totpScannerVisible, setTotpScannerVisible] = useState(false);
+  const totpScannerCallbacksRef = useRef(null);
 
   const changeModeSmooth = (nextMode) => {
     Animated.timing(modeAnim, {
@@ -64,6 +67,8 @@ function AppInner() {
   };
   const lockApp = () => {
     clearSessionKey();
+    totpScannerCallbacksRef.current = null;
+    setTotpScannerVisible(false);
     setPassword('');
     setVaultData(null);
     setSyncPassword('');
@@ -86,6 +91,48 @@ function AppInner() {
   const toast = useToast();
   const { t } = useI18n();
   const { showAlert } = useAlert();
+
+  const startTotpScanner = (callbacks) => {
+    totpScannerCallbacksRef.current = callbacks || null;
+    setTotpScannerVisible(true);
+    if (!permission?.granted && permission?.canAskAgain !== false) {
+      requestPermission().catch(() => {});
+    }
+  };
+
+  const closeTotpScanner = (notifyCancel = true) => {
+    const cbs = totpScannerCallbacksRef.current;
+    totpScannerCallbacksRef.current = null;
+    setTotpScannerVisible(false);
+    if (notifyCancel && cbs && typeof cbs.onCancel === 'function') {
+      cbs.onCancel();
+    }
+  };
+
+  const handleRootTotpBarcode = ({ data }) => {
+    const cbs = totpScannerCallbacksRef.current;
+    if (!cbs || typeof cbs.onScanned !== 'function') return;
+    const accepted = cbs.onScanned(data);
+    if (accepted) {
+      closeTotpScanner(false);
+    }
+  };
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return undefined;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (totpScannerVisible) {
+        closeTotpScanner(true);
+        return true;
+      }
+      if (mode === 'sync') {
+        handleCancelScanner();
+        return true;
+      }
+      return false;
+    });
+    return () => sub.remove();
+  }, [totpScannerVisible, mode, syncSourceMode, vaultData]);
   
   const [hasLocalVault, setHasLocalVault] = useState(false);
   const [vaultData, setVaultData] = useState(null);
@@ -257,37 +304,47 @@ function AppInner() {
     }
   };
 
+  const bioPromptInFlightRef = useRef(false);
+
   useEffect(() => {
+    let cancelled = false;
     const handleLoginBio = async () => {
+      if (bioPromptInFlightRef.current) return;
+      bioPromptInFlightRef.current = true;
       let targetPassword = null;
       try {
         const bioEnabled = await SecureStore.getItemAsync('fuin-biometric-enabled');
-        if (bioEnabled === 'true') {
+        const canBio = typeof SecureStore.canUseBiometricAuthentication === 'function'
+          ? SecureStore.canUseBiometricAuthentication()
+          : true;
+        if (bioEnabled === 'true' && canBio) {
           const hasHardware = await LocalAuthentication.hasHardwareAsync();
           const isEnrolled = await LocalAuthentication.isEnrolledAsync();
-          if (hasHardware && isEnrolled) {
-            const auth = await LocalAuthentication.authenticateAsync({
-              promptMessage: t('bioPromptLogin'),
-              fallbackLabel: t('bioFallbackLabel')
+          if (hasHardware && isEnrolled && !cancelled) {
+            // SecureStore({ requireAuthentication: true }) already triggers the hardware BiometricPrompt once;
+            // calling LocalAuthentication.authenticateAsync beforehand would prompt the user twice.
+            targetPassword = await SecureStore.getItemAsync('fuin-biometric-key', {
+              requireAuthentication: true,
+              authenticationPrompt: t('bioPromptLogin'),
             });
-            if (auth.success) {
-              targetPassword = await SecureStore.getItemAsync('fuin-biometric-key', {
-                requireAuthentication: true,
-                authenticationPrompt: t('bioPromptLogin'),
-              });
-            }
           }
         }
 
-        if (targetPassword) {
+        if (targetPassword && !cancelled) {
           handleLogin(targetPassword);
         }
-      } catch (e) {}
+      } catch (e) {
+      } finally {
+        bioPromptInFlightRef.current = false;
+      }
     };
 
     if (mode === 'lock' && hasLocalVault) {
       handleLoginBio();
     }
+    return () => {
+      cancelled = true;
+    };
   }, [mode, hasLocalVault]);
 
   const [syncMode, setSyncMode] = useState('lan');
@@ -449,6 +506,9 @@ function AppInner() {
     setMasterPasswordPrompt(false);
     setIsDecrypting(false);
     setMode('sync');
+    if (!permission?.granted && permission?.canAskAgain !== false) {
+      requestPermission().catch(() => {});
+    }
   };
 
   const handleSyncButton = async () => {
@@ -933,19 +993,106 @@ function AppInner() {
     }
   };
 
+  const renderFullScreenQrScanner = ({ title, subtitle, onBarcodeScanned, onCancel }) => (
+    <View style={{ flex: 1, backgroundColor: '#000000' }}>
+      {permission && permission.granted ? (
+        <View style={{ flex: 1, position: 'relative' }}>
+          <CameraView
+            style={{ flex: 1 }}
+            facing="back"
+            autofocus="on"
+            onBarcodeScanned={onBarcodeScanned}
+            barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
+            onMountError={(e) => {
+              showAlert(t('alertError'), e?.message || 'Camera unavailable');
+            }}
+          />
+          <View
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              top: 0,
+              right: 0,
+              bottom: 0,
+              left: 0,
+              justifyContent: 'center',
+              alignItems: 'center',
+            }}
+          >
+            <View
+              style={{
+                width: 220,
+                height: 220,
+                borderWidth: 2,
+                borderColor: theme.accent,
+                borderRadius: 16,
+                backgroundColor: 'transparent',
+              }}
+            />
+          </View>
+        </View>
+      ) : (
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.bg, padding: 24 }}>
+          <Feather name="camera-off" size={34} color={theme.muted} style={{ marginBottom: 14 }} />
+          <CustomText style={{ color: theme.text, fontSize: 15, fontWeight: 'bold', textAlign: 'center', marginBottom: 8 }}>
+            {title}
+          </CustomText>
+          <CustomText style={{ color: theme.muted, fontSize: 13, textAlign: 'center', marginBottom: 20 }}>
+            {t('cameraPermissionRequired')}
+          </CustomText>
+          <TouchableOpacity
+            style={{ backgroundColor: theme.accent, paddingHorizontal: 20, paddingVertical: 12, borderRadius: 8 }}
+            activeOpacity={0.7}
+            delayPressIn={0}
+            onPress={requestPermission}
+          >
+            <CustomText style={{ color: theme.bg, fontWeight: 'bold' }}>{t('btnGrantPermission')}</CustomText>
+          </TouchableOpacity>
+        </View>
+      )}
+      <View
+        style={{
+          backgroundColor: theme.paper,
+          borderTopWidth: 1,
+          borderTopColor: theme.border,
+          paddingTop: 18,
+          paddingHorizontal: 20,
+          paddingBottom: Math.max(insets?.bottom || 0, 24),
+          alignItems: 'center',
+        }}
+      >
+        <CustomText style={{ color: theme.text, fontSize: 15, fontWeight: 'bold', letterSpacing: 1, textAlign: 'center', marginBottom: 6 }}>
+          {title}
+        </CustomText>
+        <CustomText style={{ color: theme.muted, fontSize: 12, textAlign: 'center', marginBottom: 16 }}>
+          {subtitle}
+        </CustomText>
+        <TouchableOpacity
+          style={{
+            backgroundColor: theme.card,
+            borderWidth: 1,
+            borderColor: theme.border,
+            paddingHorizontal: 28,
+            paddingVertical: 11,
+            borderRadius: 8,
+          }}
+          activeOpacity={0.7}
+          delayPressIn={0}
+          onPress={onCancel}
+        >
+          <CustomText style={{ color: theme.text, fontSize: 14, fontWeight: 'bold' }}>{t('btnCancel')}</CustomText>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
   // ── ROUTING ──
   if (!fontsLoaded) {
     return null;
   }
 
   let content = null;
-  if (!isAppActive) {
-    content = (
-      <View style={{ flex: 1, backgroundColor: theme.bg, alignItems: 'center', justifyContent: 'center' }}>
-        <CustomText style={{ color: theme.muted, fontSize: 18 }}>{t('appLockedScreenText')}</CustomText>
-      </View>
-    );
-  } else if (mode === 'lock') {
+  if (mode === 'lock') {
     content = (
       <LockScreen 
         password={password} 
@@ -969,6 +1116,7 @@ function AppInner() {
         }}
         onSyncRequest={handleSyncButton}
         onOpenScanner={startCameraSync}
+        onOpenTotpScanner={startTotpScanner}
         onPerformLanSync={handlePerformLanSync}
         sharedEntryData={sharedEntryData}
         setSharedEntryData={setSharedEntryData}
@@ -1080,58 +1228,42 @@ function AppInner() {
         </View>
       );
     } else {
-      content = (
-        <View style={{ flex: 1, backgroundColor: 'black' }}>
-          {permission && permission.granted ? (
-            <CameraView
-              style={{ flex: 1 }}
-              facing="back"
-              autofocus="on"
-              onBarcodeScanned={handleBarcodeScanned}
-              barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
-            />
-          ) : (
-          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.bg }}>
-            <CustomText style={{ textAlign: 'center', marginBottom: 20, color: theme.text }}>{t('cameraPermissionRequired')}</CustomText>
-            <TouchableOpacity style={{ backgroundColor: theme.accent, padding: 12, borderRadius: 4 }} onPress={requestPermission}>
-              <CustomText style={{ color: theme.bg }}>{t('btnGrantPermission')}</CustomText>
-            </TouchableOpacity>
-          </View>
-        )}
-        <View style={[styles.overlay, { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, justifyContent: 'flex-end', pointerEvents: 'box-none' }]}>
-          <CustomText style={styles.syncTitle}>
-            {t('pairingScannerTitle') || 'CİHAZ EŞLEŞTİRME'}
-          </CustomText>
-          <View style={{ alignItems: 'center', marginBottom: 16 }}>
-            <CustomText style={{ color: theme.muted, fontSize: 13, textAlign: 'center', paddingHorizontal: 20 }}>
-              {t('pairingScannerSub') || 'Bilgisayarınızdaki eşleştirme QR kodunu okutun'}
-            </CustomText>
-          </View>
-          <View style={{ flexDirection: 'row', gap: 10, marginHorizontal: 20, marginBottom: 20 }}>
-            <TouchableOpacity style={[styles.cancelBtn, { flex: 1, alignItems: 'center', justifyContent: 'center' }]} onPress={handleCancelScanner}>
-              <CustomText style={[styles.cancelText, { textAlign: 'center' }]}>{t('btnCancel')}</CustomText>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
-    );
+      content = <View style={{ flex: 1, backgroundColor: theme.bg }} />;
     }
   }
 
+  const isSyncCameraActive = mode === 'sync' && !masterPasswordPrompt && !syncPasswordPrompt;
+  const isScannerOpen = isSyncCameraActive || totpScannerVisible;
+
   return (
-    <SafeAreaProvider style={{ flex: 1, backgroundColor: theme.bg }}>
-      <Animated.View style={{ 
-        flex: 1, 
-        opacity: modeAnim,
-        transform: [{
-          scale: modeAnim.interpolate({
-            inputRange: [0, 1],
-            outputRange: [0.985, 1],
-          })
-        }]
-      }}>
+    <View style={{ flex: 1, backgroundColor: theme.bg }}>
+      <Animated.View style={[
+        {
+          flex: isScannerOpen ? 0 : 1,
+          opacity: modeAnim,
+          transform: [{
+            scale: modeAnim.interpolate({
+              inputRange: [0, 1],
+              outputRange: [0.985, 1],
+            })
+          }]
+        },
+        isScannerOpen ? { display: 'none' } : null,
+      ]}>
         {content}
       </Animated.View>
+      {isSyncCameraActive && renderFullScreenQrScanner({
+        title: t('pairingScannerTitle') || 'CİHAZ EŞLEŞTİRME',
+        subtitle: t('pairingScannerSub') || 'Bilgisayarınızdaki eşleştirme QR kodunu okutun',
+        onBarcodeScanned: handleBarcodeScanned,
+        onCancel: handleCancelScanner
+      })}
+      {!isSyncCameraActive && totpScannerVisible && renderFullScreenQrScanner({
+        title: t('totpScannerTitle'),
+        subtitle: t('totpScannerSub'),
+        onBarcodeScanned: handleRootTotpBarcode,
+        onCancel: () => closeTotpScanner(true)
+      })}
       <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
         
         {/* Master Key Modal */}
@@ -1176,25 +1308,78 @@ function AppInner() {
           </View>
         )}
       </View>
-    </SafeAreaProvider>
+      {!isAppActive && (
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.bg, alignItems: 'center', justifyContent: 'center', zIndex: 10000 }]}>
+          <CustomText style={{ color: theme.muted, fontSize: 18 }}>{t('appLockedScreenText')}</CustomText>
+        </View>
+      )}
+    </View>
   );
 }
 
 export default function App() {
   return (
-    <ThemeProvider>
-      <LanguageProvider>
-        <ToastProvider>
-          <AlertProvider>
-            <AppInner />
-          </AlertProvider>
-        </ToastProvider>
-      </LanguageProvider>
-    </ThemeProvider>
+    <SafeAreaProvider style={{ flex: 1 }}>
+      <ThemeProvider>
+        <LanguageProvider>
+          <ToastProvider>
+            <AlertProvider>
+              <AppInner />
+            </AlertProvider>
+          </ToastProvider>
+        </LanguageProvider>
+      </ThemeProvider>
+    </SafeAreaProvider>
   );
 }
 
 const getStyles = (theme) => StyleSheet.create({
+  scannerReticleBox: {
+    width: 220,
+    height: 220,
+    borderWidth: 2,
+    borderColor: theme.accent,
+    borderRadius: 16,
+    backgroundColor: 'transparent',
+  },
+  scannerBottomBar: {
+    backgroundColor: theme.paper,
+    borderTopWidth: 1,
+    borderColor: theme.border,
+    paddingHorizontal: 24,
+    paddingTop: 20,
+    alignItems: 'center',
+  },
+  scannerTitle: {
+    color: theme.text,
+    fontSize: 15,
+    fontWeight: 'bold',
+    letterSpacing: 1,
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  scannerSub: {
+    color: theme.muted,
+    fontSize: 13,
+    textAlign: 'center',
+    marginBottom: 18,
+  },
+  scannerCancelBtn: {
+    width: '100%',
+    maxWidth: 320,
+    minHeight: 44,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: theme.border,
+    backgroundColor: theme.card,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  scannerCancelText: {
+    color: theme.text,
+    fontSize: 14,
+    fontWeight: '600',
+  },
   overlay: {
     paddingBottom: 40,
     alignItems: 'center',

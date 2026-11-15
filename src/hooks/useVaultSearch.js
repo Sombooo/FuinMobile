@@ -1,5 +1,7 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import crypto from 'react-native-quick-crypto';
+
+const SPECIAL_CAT_KEYS = ['cat_all', 'navLogins', 'navCards', 'navNotes', 'cat_fav', 'cat_trash'];
 
 /**
  * Hook to manage vault entry parsing, deduplication, search filtering, and category selection.
@@ -10,6 +12,19 @@ import crypto from 'react-native-quick-crypto';
 export function useVaultSearch({ vaultData, t }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState(t('cat_all'));
+  const prevTRef = useRef(t);
+
+  useEffect(() => {
+    const prevT = prevTRef.current;
+    if (prevT === t) return;
+    prevTRef.current = t;
+    for (const key of SPECIAL_CAT_KEYS) {
+      if (activeCategory === prevT(key)) {
+        setActiveCategory(t(key));
+        break;
+      }
+    }
+  }, [t, activeCategory]);
 
   const DEFAULT_CATEGORIES = useMemo(() => [
     t('navLogins'),

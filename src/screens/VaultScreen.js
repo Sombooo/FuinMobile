@@ -27,11 +27,56 @@ import { useI18n } from '../i18n';
 import { useAlert } from '../components/CustomAlert';
 import { copySecure } from '../clipboardManager';
 import FuinImporters from '../services/importers';
+import TotpEngine from '../services/totpEngine';
+import quickCrypto from 'react-native-quick-crypto';
+import { Buffer as RNBuffer } from '@craftzdog/react-native-buffer';
+import { encryptFuinBackupEnvelope, decryptFuinBackup, extractFuinBackupEnvelope } from '../crypto';
 import VaultCardItem from '../components/VaultCardItem';
 import useVaultSearch from '../hooks/useVaultSearch';
 import useAppUpdater from '../hooks/useAppUpdater';
 import { memDecrypt, unprotectEntries } from '../services/sessionSecurity';
 import { autofillService } from '../services/autofillService';
+
+TotpEngine.setCryptoProvider(quickCrypto, RNBuffer);
+
+const MAX_IMPORT_BYTES = 20 * 1024 * 1024;
+
+function decodeImportedBase64Buffer(b64) {
+  const buf = RNBuffer.from(b64, 'base64');
+  if (!buf || buf.length === 0) return '';
+  if (buf.length >= 3 && buf[0] === 0xEF && buf[1] === 0xBB && buf[2] === 0xBF) {
+    return buf.subarray(3).toString('utf8');
+  }
+  if (buf.length >= 2 && buf[0] === 0xFF && buf[1] === 0xFE) {
+    return buf.subarray(2).toString('utf16le');
+  }
+  if (buf.length >= 2 && buf[0] === 0xFE && buf[1] === 0xFF) {
+    const swapped = RNBuffer.from(buf.subarray(2));
+    for (let i = 0; i + 1 < swapped.length; i += 2) {
+      const tmp = swapped[i];
+      swapped[i] = swapped[i + 1];
+      swapped[i + 1] = tmp;
+    }
+    return swapped.toString('utf16le');
+  }
+  const sampleLen = Math.min(buf.length - (buf.length % 2), 64);
+  if (sampleLen >= 4) {
+    let oddZero = 0;
+    let evenZero = 0;
+    for (let i = 0; i < sampleLen; i += 2) {
+      if (buf[i] === 0) evenZero++;
+      if (buf[i + 1] === 0) oddZero++;
+    }
+    if (oddZero > sampleLen / 4 && evenZero === 0) {
+      return buf.toString('utf16le');
+    }
+  }
+  const utf8Str = buf.toString('utf8');
+  if (utf8Str.includes('\uFFFD')) {
+    return buf.toString('latin1');
+  }
+  return utf8Str;
+}
 
 export default function VaultScreen({ 
   vaultData, 
@@ -39,6 +84,7 @@ export default function VaultScreen({
   onLogout, 
   onSyncRequest, 
   onOpenScanner,
+  onOpenTotpScanner,
   onPerformLanSync,
   onUpdateVaultData, 
   sharedEntryData, 
@@ -98,6 +144,23 @@ export default function VaultScreen({
   const [backupModalVisible, setBackupModalVisible] = useState(false);
   const [backups, setBackups] = useState([]);
 
+  // Live 2FA (TOTP) Modal State
+  const [totpModalSite, setTotpModalSite] = useState(null);
+  const [totpSecret, setTotpSecret] = useState(null);
+  const [totpState, setTotpState] = useState({
+    token: '------',
+    formattedToken: '--- ---',
+    secondsRemaining: 30,
+    progressPercent: 100,
+    valid: false,
+    error: null,
+  });
+
+  // Encrypted .fuin Backup Password Prompt State
+  const [encBackupRaw, setEncBackupRaw] = useState(null);
+  const [encBackupPw, setEncBackupPw] = useState('');
+  const [encBackupBusy, setEncBackupBusy] = useState(false);
+
   // Show password state
   const [visiblePasswords, setVisiblePasswords] = useState({});
   const [biometricEnabled, setBiometricEnabled] = useState(false);
@@ -143,7 +206,7 @@ export default function VaultScreen({
       try {
         const AsyncStorage = require('@react-native-async-storage/async-storage').default;
         const lastSeen = await AsyncStorage.getItem('fuin_last_seen_changelog');
-        const curVer = updater.currentVersion || '1.0.0-beta.10';
+        const curVer = updater.currentVersion || '1.0.0-beta.11';
         const { isNewerVersion } = require('../services/updateCore');
         if (!lastSeen || isNewerVersion(curVer, lastSeen)) {
           setTimeout(() => {
@@ -230,33 +293,61 @@ export default function VaultScreen({
   useEffect(() => {
     return () => {
       setSelectedEntry(null);
+      setTotpSecret(null);
+      setEncBackupRaw(null);
+      setEncBackupPw('');
     };
   }, []);
+
+  useEffect(() => {
+    if (!totpSecret) return undefined;
+    const ticker = TotpEngine.startTOTPTicker(totpSecret, (res) => {
+      setTotpState(res);
+    }, { intervalMs: 500 });
+    return () => {
+      ticker.stop();
+    };
+  }, [totpSecret]);
 
   const toggleBiometric = async () => {
     const newVal = !biometricEnabled;
     if (newVal) {
       const hasHardware = await LocalAuthentication.hasHardwareAsync();
       const isEnrolled = await LocalAuthentication.isEnrolledAsync();
-      if (!hasHardware || !isEnrolled) {
+      const canBioStore = typeof SecureStore.canUseBiometricAuthentication === 'function'
+        ? SecureStore.canUseBiometricAuthentication()
+        : true;
+      if (!hasHardware || !isEnrolled || !canBioStore) {
         showAlert(t('alertError'), t('bioNotSupportedOrEnrolled'));
         return;
       }
-      
-      const auth = await LocalAuthentication.authenticateAsync({
-        promptMessage: t('bioEnablePrompt')
-      });
-      
-      if (auth.success) {
-        await SecureStore.setItemAsync('fuin-biometric-enabled', 'true');
-        if (password) {
+
+      try {
+        if (Platform.OS === 'android' && password) {
+          // On Android, SecureStore.setItemAsync({ requireAuthentication: true }) invokes BiometricPrompt directly;
+          // calling LocalAuthentication.authenticateAsync beforehand causes a duplicate prompt.
           await SecureStore.setItemAsync('fuin-biometric-key', password, {
             requireAuthentication: true,
-            authenticationPrompt: 'Kasayı açmak için doğrulayın',
+            authenticationPrompt: t('bioEnablePrompt'),
           });
+        } else {
+          const auth = await LocalAuthentication.authenticateAsync({
+            promptMessage: t('bioEnablePrompt')
+          });
+          if (!auth.success) return;
+          if (password) {
+            await SecureStore.setItemAsync('fuin-biometric-key', password, {
+              requireAuthentication: true,
+              authenticationPrompt: t('bioPromptLogin'),
+            });
+          }
         }
+
+        await SecureStore.setItemAsync('fuin-biometric-enabled', 'true');
         setBiometricEnabled(true);
         showAlert(t('alertSuccess'), t('bioEnabledSuccess'));
+      } catch {
+        // User canceled or biometric Keystore authentication failed; leave disabled cleanly
       }
     } else {
       await SecureStore.setItemAsync('fuin-biometric-enabled', 'false');
@@ -417,6 +508,77 @@ export default function VaultScreen({
     setModalVisible(true);
   }, [verifyReprompt]);
 
+  const closeTotpModal = useCallback(() => {
+    setTotpSecret(null);
+    setTotpModalSite(null);
+  }, []);
+
+  const handleOpenTotp = useCallback(async (entry) => {
+    if (!entry || !entry.totp) return;
+    if (entry.reprompt) {
+      const ok = await verifyReprompt(entry);
+      if (!ok) return;
+    }
+    const rawSecret = typeof entry.totp === 'object' ? memDecrypt(entry.totp) : String(entry.totp || '');
+    if (!rawSecret.trim()) return;
+    setTotpModalSite(entry.site || entry.title || '2FA');
+    setTotpSecret(rawSecret);
+  }, [verifyReprompt]);
+
+  const handleCopyTotpCode = useCallback(async () => {
+    if (!totpState.valid || !totpState.token || totpState.token.includes('-')) return;
+    await copySecure(totpState.token, 30000);
+    showAlert(t('alertCopied'), t('toastTotpCopied'));
+  }, [totpState, showAlert, t]);
+
+  const saveExportFile = useCallback(async ({ content, fileName, mimeType, uti, dialogTitle, successMsg, failPrefix }) => {
+    try {
+      const { StorageAccessFramework } = FileSystem;
+      if (Platform.OS === 'android') {
+        const permissions = await StorageAccessFramework.requestDirectoryPermissionsAsync();
+        if (permissions.granted) {
+          const fileUri = await StorageAccessFramework.createFileAsync(permissions.directoryUri, fileName, mimeType);
+          await FileSystem.writeAsStringAsync(fileUri, content, { encoding: 'utf8' });
+          showAlert(t('alertSuccess'), successMsg);
+        }
+      } else {
+        const fileUri = FileSystem.cacheDirectory + fileName;
+        await FileSystem.writeAsStringAsync(fileUri, content, { encoding: 'utf8' });
+        try {
+          await Sharing.shareAsync(fileUri, { UTI: uti, dialogTitle });
+        } finally {
+          await FileSystem.deleteAsync(fileUri, { idempotent: true });
+        }
+      }
+    } catch (e) {
+      showAlert(t('alertError'), failPrefix + (e?.message || 'Hata'));
+    }
+  }, [showAlert, t]);
+
+  const readPickedFileText = useCallback(async (asset) => {
+    const uri = asset?.uri;
+    if (!uri) throw new Error('Dosya okunamadı');
+    try {
+      const info = await FileSystem.getInfoAsync(uri);
+      const byteSize = asset?.size || info?.size || 0;
+      if (byteSize > MAX_IMPORT_BYTES) {
+        throw new Error(t('ioFileTooLarge'));
+      }
+      const b64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
+      return decodeImportedBase64Buffer(b64);
+    } finally {
+      try { await FileSystem.deleteAsync(uri, { idempotent: true }); } catch {}
+    }
+  }, [t]);
+
+  const applyImportedVaultEntries = useCallback(async (res, { formatType, successMsg }) => {
+    const newEntries = [...unprotectEntries(entries), ...res.entries];
+    const newCategories = Array.from(new Set([...(parsedVault.categories || DEFAULT_CATEGORIES), ...(res.categories || [])]));
+    const success = await onUpdateVaultData(JSON.stringify({ type: 'fuin/vault', categories: newCategories, entries: newEntries }));
+    if (success) showAlert(t('alertSuccess'), successMsg);
+    return success;
+  }, [entries, parsedVault, DEFAULT_CATEGORIES, onUpdateVaultData, showAlert, t]);
+
   const handleOpenUrl = useCallback(async (rawUrl) => {
     try {
       let urlToOpen = String(rawUrl || '').trim();
@@ -458,11 +620,12 @@ export default function VaultScreen({
       onCopy={handleCopy}
       onOpenEdit={openEditModal}
       onOpenUrl={handleOpenUrl}
+      onOpenTotp={handleOpenTotp}
       theme={theme}
       styles={styles}
       t={t}
     />
-  ), [visiblePasswords, togglePasswordVisibility, handleCopy, openEditModal, handleOpenUrl, theme, styles, t]);
+  ), [visiblePasswords, togglePasswordVisibility, handleCopy, openEditModal, handleOpenUrl, handleOpenTotp, theme, styles, t]);
 
   return (
     <SafeAreaView style={[styles.container, { paddingTop: insets.top }]}>
@@ -623,99 +786,64 @@ export default function VaultScreen({
             
             <View style={{flexDirection: 'row', gap: 10, marginBottom: 10}}>
               <TouchableOpacity style={[styles.settingsCard, { flex: 1, alignItems: 'center' }]} onPress={async () => {
-                try {
-                  const { StorageAccessFramework } = FileSystem;
-                  const jsonStr = JSON.stringify({ ...parsedVault, entries: unprotectEntries(entries) }, null, 2);
-                  const fileName = 'fuin-yedek.json';
-                  
-                  if (Platform.OS === 'android') {
-                    const permissions = await StorageAccessFramework.requestDirectoryPermissionsAsync();
-                    if (permissions.granted) {
-                      const fileUri = await StorageAccessFramework.createFileAsync(permissions.directoryUri, fileName, 'application/json');
-                      await FileSystem.writeAsStringAsync(fileUri, jsonStr, { encoding: 'utf8' });
-                      showAlert(t('alertSuccess'), t('toastJsonExported'));
-                    }
-                  } else {
-                    const fileUri = FileSystem.cacheDirectory + fileName;
-                    await FileSystem.writeAsStringAsync(fileUri, jsonStr, { encoding: 'utf8' });
-                    try {
-                      await Sharing.shareAsync(fileUri, { UTI: 'public.json', dialogTitle: t('ioExportJsonTitle') });
-                    } finally {
-                      await FileSystem.deleteAsync(fileUri, { idempotent: true });
-                    }
-                  }
-                } catch(e) {
-                  showAlert(t('alertError'), t('ioExportJsonFailed') + ' (Hata)');
-                }
+                const jsonStr = JSON.stringify({ ...parsedVault, entries: unprotectEntries(entries) }, null, 2);
+                await saveExportFile({
+                  content: jsonStr,
+                  fileName: 'fuin-yedek.json',
+                  mimeType: 'application/json',
+                  uti: 'public.json',
+                  dialogTitle: t('ioExportJsonTitle'),
+                  successMsg: t('toastJsonExported'),
+                  failPrefix: t('ioExportJsonFailed'),
+                });
               }}>
                 <Feather name="download" size={20} color={theme.accent} style={{ marginBottom: 6 }} />
                 <CustomText style={{color: theme.text, fontSize: 13, fontWeight: 'bold'}}>{t('ioExportJsonBtn')}</CustomText>
               </TouchableOpacity>
 
               <TouchableOpacity style={[styles.settingsCard, { flex: 1, alignItems: 'center', paddingVertical: 14 }]} onPress={async () => {
-                try {
-                  const { StorageAccessFramework } = FileSystem;
-                  
-                  let csv = 'name,url,username,password,notes,category,totp\n';
-                  entries.forEach(e => {
-                    const row = [e.site, e.url, e.username, memDecrypt(e.password), e.note, e.category, memDecrypt(e.totp)]
-                      .map(v => `"${(v||'').replace(/"/g, '""')}"`).join(',');
-                    csv += row + '\n';
-                  });
-                  const fileName = 'fuin-yedek.csv';
-                  
-                  if (Platform.OS === 'android') {
-                    const permissions = await StorageAccessFramework.requestDirectoryPermissionsAsync();
-                    if (permissions.granted) {
-                      const fileUri = await StorageAccessFramework.createFileAsync(permissions.directoryUri, fileName, 'text/csv');
-                      await FileSystem.writeAsStringAsync(fileUri, csv, { encoding: 'utf8' });
-                      showAlert(t('alertSuccess'), t('toastCsvExported'));
-                    }
-                  } else {
-                    const fileUri = FileSystem.cacheDirectory + fileName;
-                    await FileSystem.writeAsStringAsync(fileUri, csv, { encoding: 'utf8' });
-                    try {
-                      await Sharing.shareAsync(fileUri, { UTI: 'public.comma-separated-values-text', dialogTitle: t('ioExportCsvTitle') });
-                    } finally {
-                      await FileSystem.deleteAsync(fileUri, { idempotent: true });
-                    }
-                  }
-                } catch(e) {
-                  showAlert(t('alertError'), t('ioExportCsvFailed') + ' (Hata)');
-                }
+                let csv = 'name,url,username,password,notes,category,totp\n';
+                unprotectEntries(entries).forEach(e => {
+                  const row = [e.site, e.url, e.username, e.password, e.note, e.category, e.totp]
+                    .map(v => `"${(v||'').replace(/"/g, '""')}"`).join(',');
+                  csv += row + '\n';
+                });
+                await saveExportFile({
+                  content: csv,
+                  fileName: 'fuin-yedek.csv',
+                  mimeType: 'text/csv',
+                  uti: 'public.comma-separated-values-text',
+                  dialogTitle: t('ioExportCsvTitle'),
+                  successMsg: t('toastCsvExported'),
+                  failPrefix: t('ioExportCsvFailed'),
+                });
               }}>
                 <Feather name="file-text" size={20} color={theme.accent} style={{ marginBottom: 6 }} />
                 <CustomText style={{color: theme.text, fontSize: 13, fontWeight: 'bold'}}>{t('ioExportCsvBtn')}</CustomText>
               </TouchableOpacity>
             </View>
 
-            <View style={{flexDirection: 'row', gap: 10, marginBottom: 20}}>
+            <View style={{flexDirection: 'row', gap: 10, marginBottom: 10}}>
               <TouchableOpacity style={[styles.settingsCard, { flex: 1, alignItems: 'center' }]} onPress={async () => {
-                let importedCacheUri = null;
                 try {
-                  const result = await DocumentPicker.getDocumentAsync({ type: 'application/json', copyToCacheDirectory: true });
+                  const result = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true });
                   if (result.canceled === false && result.assets && result.assets.length > 0) {
-                    importedCacheUri = result.assets[0].uri;
-                    const content = await FileSystem.readAsStringAsync(importedCacheUri, { encoding: 'utf8' });
-                    try { await FileSystem.deleteAsync(importedCacheUri, { idempotent: true }); importedCacheUri = null; } catch {}
-                    
+                    const content = await readPickedFileText(result.assets[0]);
                     const res = FuinImporters.importJSON(content, {
-                      existingEntries: entries,
+                      existingEntries: unprotectEntries(entries),
                       defaultCategory: t('cat_other')
                     });
-
-                    const newEntries = [...entries, ...res.entries];
-                    const newCategories = Array.from(new Set([...(parsedVault.categories || DEFAULT_CATEGORIES), ...(res.categories || [])]));
-                    
-                    const success = await onUpdateVaultData(JSON.stringify({ type: 'fuin/vault', categories: newCategories, entries: newEntries }));
-                    if (success) showAlert(t('alertSuccess'), `${res.entries.length}${t('ioItemsImportedSuccess')}`);
+                    if (res.entries.length === 0) {
+                      showAlert(t('alertInfo'), res.skippedCount > 0 ? t('ioAllDuplicatesOrSkipped') : t('ioInvalidJsonError'));
+                      return;
+                    }
+                    await applyImportedVaultEntries(res, {
+                      formatType: 'json',
+                      successMsg: `${res.entries.length}${t('ioItemsImportedSuccess')}`,
+                    });
                   }
                 } catch(e) {
-                  showAlert(t('alertError'), t('ioImportFailed') + ': ' + e.message);
-                } finally {
-                  if (importedCacheUri) {
-                    try { await FileSystem.deleteAsync(importedCacheUri, { idempotent: true }); } catch {}
-                  }
+                  showAlert(t('alertError'), t('ioImportFailed') + e.message);
                 }
               }}>
                 <Feather name="upload" size={20} color={theme.accent} style={{ marginBottom: 6 }} />
@@ -723,37 +851,99 @@ export default function VaultScreen({
               </TouchableOpacity>
 
               <TouchableOpacity style={[styles.settingsCard, { flex: 1, alignItems: 'center' }]} onPress={async () => {
-                let importedCsvUri = null;
                 try {
-                  const result = await DocumentPicker.getDocumentAsync({ type: 'text/csv', copyToCacheDirectory: true });
+                  const result = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true });
                   if (result.canceled === false && result.assets && result.assets.length > 0) {
-                    importedCsvUri = result.assets[0].uri;
-                    const content = await FileSystem.readAsStringAsync(importedCsvUri, { encoding: 'utf8' });
-                    try { await FileSystem.deleteAsync(importedCsvUri, { idempotent: true }); importedCsvUri = null; } catch {}
-
+                    const content = await readPickedFileText(result.assets[0]);
                     const res = FuinImporters.importCSV(content, {
-                      existingEntries: entries,
+                      existingEntries: unprotectEntries(entries),
                       defaultCategory: t('cat_other')
                     });
 
-                    if (res.entries.length === 0 && res.totalRows === 0) {
-                      throw new Error(t('ioInvalidCsvEmpty'));
+                    if (res.format === 'unknown' && res.entries.length === 0) {
+                      throw new Error(res.totalRows > 0 ? t('ioInvalidCsvColumns') : t('ioInvalidCsvEmpty'));
+                    }
+                    if (res.entries.length === 0) {
+                      showAlert(
+                        t('alertInfo'),
+                        (res.totalRows > 0 || res.skippedCount > 0) ? t('ioAllDuplicatesOrSkipped') : t('ioInvalidCsvEmpty')
+                      );
+                      return;
                     }
 
-                    const newEntries = [...entries, ...res.entries];
-                    const success = await onUpdateVaultData(JSON.stringify({ type: 'fuin/vault', categories: parsedVault.categories, entries: newEntries }));
-                    if (success) showAlert(t('alertSuccess'), `${res.entries.length}${t('ioItemsImportedCsvSuccess')}`);
+                    await applyImportedVaultEntries(res, {
+                      formatType: 'csv',
+                      successMsg: `${res.entries.length}${t('ioItemsImportedCsvSuccess')}`,
+                    });
                   }
                 } catch(e) {
-                  showAlert(t('alertError'), t('ioImportFailed') + ': ' + e.message);
-                } finally {
-                  if (importedCsvUri) {
-                    try { await FileSystem.deleteAsync(importedCsvUri, { idempotent: true }); } catch {}
-                  }
+                  showAlert(t('alertError'), t('ioImportFailed') + e.message);
                 }
               }}>
                 <Feather name="folder" size={20} color={theme.accent} style={{ marginBottom: 6 }} />
                 <CustomText style={{color: theme.text, fontSize: 13, fontWeight: 'bold'}}>{t('ioImportCsvBtn')}</CustomText>
+              </TouchableOpacity>
+            </View>
+
+            <View style={{flexDirection: 'row', gap: 10, marginBottom: 20}}>
+              <TouchableOpacity style={[styles.settingsCard, { flex: 1, alignItems: 'center', borderColor: 'rgba(90, 154, 110, 0.4)' }]} onPress={async () => {
+                try {
+                  const payload = JSON.stringify({
+                    type: 'fuin/vault',
+                    exportedAt: Date.now(),
+                    categories: parsedVault.categories || DEFAULT_CATEGORIES,
+                    entries: unprotectEntries(entries),
+                  });
+                  const envelope = await encryptFuinBackupEnvelope(payload, password);
+                  const datePart = new Date().toISOString().slice(0, 10);
+                  await saveExportFile({
+                    content: envelope,
+                    fileName: `fuin-kasa-${datePart}.fuin`,
+                    mimeType: 'application/octet-stream',
+                    uti: 'public.data',
+                    dialogTitle: t('ioExportEncTitle'),
+                    successMsg: t('toastEncBackupExported'),
+                    failPrefix: t('ioExportEncFailed'),
+                  });
+                } catch (e) {
+                  showAlert(t('alertError'), t('ioExportEncFailed') + (e?.message || 'Hata'));
+                }
+              }}>
+                <Feather name="shield" size={20} color={theme.accent} style={{ marginBottom: 6 }} />
+                <CustomText style={{color: theme.text, fontSize: 13, fontWeight: 'bold', textAlign: 'center'}}>{t('ioExportEncBtn')}</CustomText>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={[styles.settingsCard, { flex: 1, alignItems: 'center', borderColor: 'rgba(90, 154, 110, 0.4)' }]} onPress={async () => {
+                try {
+                  const result = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true });
+                  if (result.canceled === false && result.assets && result.assets.length > 0) {
+                    const content = await readPickedFileText(result.assets[0]);
+                    const { ciphertext, kdf } = extractFuinBackupEnvelope(content);
+                    try {
+                      const plainJson = await decryptFuinBackup(ciphertext, password, kdf);
+                      const res = FuinImporters.importJSON(plainJson, {
+                        existingEntries: unprotectEntries(entries),
+                        defaultCategory: t('cat_other'),
+                      });
+                      if (res.entries.length === 0) {
+                        showAlert(t('alertInfo'), res.skippedCount > 0 ? t('ioAllDuplicatesOrSkipped') : t('ioInvalidFuinFile'));
+                        return;
+                      }
+                      await applyImportedVaultEntries(res, {
+                        formatType: 'fuin',
+                        successMsg: `${res.entries.length}${t('toastEncBackupRestored')}`,
+                      });
+                    } catch {
+                      setEncBackupPw('');
+                      setEncBackupRaw(content);
+                    }
+                  }
+                } catch {
+                  showAlert(t('alertError'), t('ioInvalidFuinFile'));
+                }
+              }}>
+                <Feather name="lock" size={20} color={theme.accent} style={{ marginBottom: 6 }} />
+                <CustomText style={{color: theme.text, fontSize: 13, fontWeight: 'bold', textAlign: 'center'}}>{t('ioImportEncBtn')}</CustomText>
               </TouchableOpacity>
             </View>
 
@@ -1038,6 +1228,7 @@ export default function VaultScreen({
         visible={modalVisible} 
         entry={selectedEntry}
         allCategories={editableCategories}
+        onOpenTotpScanner={onOpenTotpScanner}
         onClose={() => setModalVisible(false)} 
         onSave={handleSaveEntry} 
         onDelete={handleDeleteEntry} 
@@ -1129,6 +1320,116 @@ export default function VaultScreen({
         t={t}
         showAlert={showAlert}
       />
+
+      {/* Live 2FA (TOTP) Viewer Modal */}
+      <Modal
+        visible={Boolean(totpSecret)}
+        transparent
+        animationType="fade"
+        onRequestClose={closeTotpModal}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.68)', justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+          <View style={{ width: '100%', maxWidth: 340, backgroundColor: theme.paper, borderRadius: 8, borderWidth: 1, borderColor: theme.border, padding: 20 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <CustomText style={{ fontSize: 11, fontWeight: 'bold', letterSpacing: 1.5, color: theme.muted }}>{t('totpModalTitle')}</CustomText>
+              <CustomText style={{ fontSize: 12, fontWeight: 'bold', color: totpState.secondsRemaining <= 5 ? (theme.amber || '#c88040') : theme.accent }}>
+                {totpState.secondsRemaining}s
+              </CustomText>
+            </View>
+            <CustomText style={{ fontSize: 16, fontWeight: 'bold', color: theme.text, marginBottom: 14 }} numberOfLines={1}>
+              {totpModalSite}
+            </CustomText>
+
+            <TouchableOpacity
+              activeOpacity={0.75}
+              onPress={handleCopyTotpCode}
+              style={{ backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border, borderRadius: 6, paddingVertical: 18, paddingHorizontal: 14, alignItems: 'center', marginBottom: 12 }}
+            >
+              <CustomText style={{ fontSize: 30, fontWeight: 'bold', letterSpacing: 4, color: totpState.valid ? theme.accent : theme.red, fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace' }}>
+                {totpState.valid ? totpState.formattedToken : '--- ---'}
+              </CustomText>
+              <CustomText style={{ fontSize: 11, color: theme.muted, marginTop: 6 }}>
+                {totpState.valid ? t('totpHint') : t('totpInvalidSecret')}
+              </CustomText>
+            </TouchableOpacity>
+
+            <View style={{ height: 4, backgroundColor: theme.border, borderRadius: 2, overflow: 'hidden', marginBottom: 16 }}>
+              <View style={{ height: '100%', width: `${Math.max(0, Math.min(100, totpState.progressPercent))}%`, backgroundColor: totpState.secondsRemaining <= 5 ? (theme.amber || '#c88040') : theme.accent }} />
+            </View>
+
+            <TouchableOpacity
+              onPress={closeTotpModal}
+              style={{ alignSelf: 'center', paddingHorizontal: 24, paddingVertical: 10, borderRadius: 4, borderWidth: 1, borderColor: theme.border }}
+            >
+              <CustomText style={{ color: theme.text, fontSize: 13, fontWeight: 'bold' }}>{t('btnClose')}</CustomText>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Encrypted .fuin Backup Password Modal */}
+      <Modal
+        visible={Boolean(encBackupRaw)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => { if (!encBackupBusy) { setEncBackupRaw(null); setEncBackupPw(''); } }}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.68)', justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+          <View style={{ width: '100%', maxWidth: 360, backgroundColor: theme.paper, borderRadius: 8, borderWidth: 1, borderColor: theme.border, padding: 20 }}>
+            <CustomText style={{ fontSize: 15, fontWeight: 'bold', color: theme.text, marginBottom: 8 }}>{t('promptEncBackupTitle')}</CustomText>
+            <CustomText style={{ fontSize: 12, color: theme.muted, marginBottom: 14, lineHeight: 18 }}>{t('promptEncBackupDesc')}</CustomText>
+            <CustomTextInput
+              value={encBackupPw}
+              onChangeText={setEncBackupPw}
+              placeholder={t('fieldPassword')}
+              placeholderTextColor={theme.muted}
+              secureTextEntry
+              autoFocus
+              style={{ backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border, borderRadius: 4, padding: 12, color: theme.text, fontSize: 14, marginBottom: 16 }}
+            />
+            <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 10 }}>
+              <TouchableOpacity
+                disabled={encBackupBusy}
+                onPress={() => { setEncBackupRaw(null); setEncBackupPw(''); }}
+                style={{ paddingHorizontal: 18, paddingVertical: 10, borderRadius: 4, borderWidth: 1, borderColor: theme.border }}
+              >
+                <CustomText style={{ color: theme.muted, fontSize: 13, fontWeight: 'bold' }}>{t('btnCancel')}</CustomText>
+              </TouchableOpacity>
+              <TouchableOpacity
+                disabled={encBackupBusy || !encBackupPw}
+                onPress={async () => {
+                  if (!encBackupRaw || !encBackupPw || encBackupBusy) return;
+                  setEncBackupBusy(true);
+                  try {
+                    const plainJson = await decryptFuinBackup(encBackupRaw, encBackupPw);
+                    const res = FuinImporters.importJSON(plainJson, {
+                      existingEntries: unprotectEntries(entries),
+                      defaultCategory: t('cat_other'),
+                    });
+                    setEncBackupRaw(null);
+                    setEncBackupPw('');
+                    if (res.entries.length === 0) {
+                      showAlert(t('alertInfo'), res.skippedCount > 0 ? t('ioAllDuplicatesOrSkipped') : t('ioInvalidFuinFile'));
+                      return;
+                    }
+                    await applyImportedVaultEntries(res, {
+                      formatType: 'fuin',
+                      successMsg: `${res.entries.length}${t('toastEncBackupRestored')}`,
+                    });
+                  } catch {
+                    showAlert(t('alertError'), t('toastWrongPasswordOrCorrupted'));
+                  } finally {
+                    setEncBackupBusy(false);
+                  }
+                }}
+                style={{ paddingHorizontal: 20, paddingVertical: 10, borderRadius: 4, backgroundColor: theme.accent, opacity: encBackupBusy || !encBackupPw ? 0.6 : 1 }}
+              >
+                <CustomText style={{ color: theme.bg, fontSize: 13, fontWeight: 'bold' }}>{encBackupBusy ? '...' : t('btnOk')}</CustomText>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
     </SafeAreaView>
   );
