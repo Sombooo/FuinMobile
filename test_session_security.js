@@ -144,6 +144,78 @@ test('8. Credit card and secure note fields RAM protection and round-trip', () =
   assert.strictEqual(unprotected[1].secureNote, 'Super-Secret-Wifi-Key-5GHz!');
 });
 
+test('9. memEncrypt never coerces alien or Desktop { iv, data } objects into "[object Object]"', () => {
+  sessionSecurity.initSessionKey();
+
+  // Desktop RAM-encrypted object (missing .tag and uses array fields)
+  const desktopRamObj = { iv: [1, 2, 3, 4], data: [5, 6, 7, 8] };
+  assert.strictEqual(sessionSecurity.memEncrypt(desktopRamObj), '');
+  assert.strictEqual(sessionSecurity.memEncrypt({}), '');
+  assert.strictEqual(sessionSecurity.memEncrypt(['nested']), '');
+
+  // Re-encrypting an already Mobile-protected object recovers plaintext safely
+  const encNote = sessionSecurity.memEncrypt('Özel Not — Sync Test');
+  assert.strictEqual(typeof encNote, 'object');
+  const reEncNote = sessionSecurity.memEncrypt(encNote);
+  assert.strictEqual(sessionSecurity.memDecrypt(reEncNote), 'Özel Not — Sync Test');
+
+  // protectEntries scrubs alien objects instead of storing "[object Object]"
+  const protectedMixed = sessionSecurity.protectEntries([
+    { id: 'n1', type: 'note', site: 'Not', secureNote: desktopRamObj },
+    { id: 'n2', type: 'note', site: 'Not 2', secureNote: 'Temiz Güvenli Not' }
+  ]);
+  assert.strictEqual(protectedMixed[0].secureNote, '');
+  assert.notStrictEqual(sessionSecurity.memDecrypt(protectedMixed[0].secureNote), '[object Object]');
+  const plainMixed = sessionSecurity.unprotectEntries(protectedMixed);
+  assert.strictEqual(plainMixed[1].secureNote, 'Temiz Güvenli Not');
+
+  // Even without active session key, objects must not stringify to "[object Object]"
+  sessionSecurity.clearSessionKey();
+  assert.strictEqual(sessionSecurity.memEncrypt(desktopRamObj), '');
+  assert.strictEqual(sessionSecurity.memEncrypt('plain-when-locked'), 'plain-when-locked');
+  assert.deepStrictEqual(sessionSecurity.memEncrypt({ iv: 'aa', tag: 'bb', data: 'cc' }), { iv: 'aa', tag: 'bb', data: 'cc' });
+});
+
+test('10. protectEntries/unprotectEntries protect card/note history and heal legacy "[object Object]" artifacts', () => {
+  sessionSecurity.initSessionKey();
+  const entries = [
+    {
+      id: 'c-hist',
+      type: 'card',
+      site: 'Amex Gold',
+      cardNumber: '[object Object]',
+      cardCvv: '[object Object]',
+      cardPin: '[object Object]',
+      history: [
+        { cardNumber: '3782 822463 10005', cardCvv: '1234', cardPin: '9988', date: 100 }
+      ]
+    },
+    {
+      id: 'n-hist',
+      type: 'note',
+      site: 'Kurtarma',
+      secureNote: '[object Object]',
+      history: [{ secureNote: 'Eski kurtarma kelimeleri', date: 200 }]
+    }
+  ];
+
+  const protectedList = sessionSecurity.protectEntries(entries);
+  assert.strictEqual(protectedList[0].cardNumber, '');
+  assert.strictEqual(protectedList[0].cardCvv, '');
+  assert.strictEqual(protectedList[0].cardPin, '');
+  assert.strictEqual(protectedList[1].secureNote, '');
+  assert.strictEqual(typeof protectedList[0].history[0].cardNumber, 'object');
+  assert.strictEqual(typeof protectedList[0].history[0].cardCvv, 'object');
+  assert.strictEqual(typeof protectedList[1].history[0].secureNote, 'object');
+  assert.strictEqual(JSON.stringify(protectedList).includes('3782 822463 10005'), false);
+
+  const unprotected = sessionSecurity.unprotectEntries(protectedList);
+  assert.strictEqual(unprotected[0].cardNumber, '');
+  assert.strictEqual(unprotected[0].history[0].cardNumber, '3782 822463 10005');
+  assert.strictEqual(unprotected[0].history[0].cardCvv, '1234');
+  assert.strictEqual(unprotected[1].history[0].secureNote, 'Eski kurtarma kelimeleri');
+});
+
 console.log('═'.repeat(75));
 console.log(`TOTAL PASSES: ${passes}`);
 console.log(`TOTAL FAILURES: ${failures}`);

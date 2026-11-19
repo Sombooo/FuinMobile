@@ -138,6 +138,13 @@ test('5. Sync merge preserves card and note entries across devices', () => {
   assert.ok(noteEntry, 'Note entry must exist in merged vault');
   assert.strictEqual(noteEntry.type, 'note');
   assert.strictEqual(noteEntry.secureNote, 'Kapı Kodu: *1453#');
+
+  // Two distinct cards sharing bank name and cardholder name must not collide
+  const twoCardsRes = mergeVaultEntries(
+    [{ id: 'card-1', type: 'card', site: 'Garanti BBVA', username: 'Kadir', cardholderName: 'Kadir', cardLastFour: '1111', updatedAt: 1000 }],
+    [{ id: 'card-2', type: 'card', site: 'Garanti BBVA', username: 'Kadir', cardholderName: 'Kadir', cardLastFour: '2222', updatedAt: 2000 }]
+  );
+  assert.strictEqual(twoCardsRes.mergedEntries.length, 2, 'Two separate cards with same site/cardholder must not collide');
 });
 
 // ── 4. i18n Translation Parity ───────────────────────────────────
@@ -269,6 +276,95 @@ test('12. Mobile parseOtpAuthUri extracts otpauth://totp parameters and EditModa
   assert.ok(!/transform:\s*[^;\n]*(undefined|null)/.test(appSrc), 'Animated transform must never pass undefined/null (processTransform.forEach crash)');
   assert.ok(appSrc.includes('renderFullScreenQrScanner') && /<CameraView[\s\S]*?style=\{\{\s*flex:\s*1\s*\}\}/.test(appSrc), 'CameraView must use direct flex: 1 layout on Android');
   assert.ok(appSrc.includes('isScannerOpen') && !/\{isSyncCameraActive\s*&&\s*\(\s*<View\s+style=\{StyleSheet\.absoluteFill\}/.test(appSrc), 'Scanner must not be nested inside StyleSheet.absoluteFill overlay');
+});
+
+// ── 7. Category Normalization & TR/EN Display Parity ─────────────
+test('13. Category helper translates Desktop/Mobile aliases to active UI language and preserves canonical storage', () => {
+  const catHelper = require('./src/services/categoryHelper');
+  const i18nSrc = fs.readFileSync(path.join(__dirname, 'src', 'i18n.js'), 'utf8');
+  const dictMatch = /const TRANSLATIONS\s*=\s*\{[\s\S]*?\n\};/.exec(i18nSrc);
+  assert.ok(dictMatch, 'src/i18n.js must declare TRANSLATIONS');
+  const TRANSLATIONS = new Function(`${dictMatch[0]}; return TRANSLATIONS;`)();
+
+  const tEn = (k) => TRANSLATIONS.en[k] || k;
+  const tTr = (k) => TRANSLATIONS.tr[k] || k;
+
+  // All Desktop canonical Turkish categories must display in English when app language is EN
+  assert.strictEqual(catHelper.getCategoryLabel('Finans', tEn), 'Finance');
+  assert.strictEqual(catHelper.getCategoryLabel('Diğer', tEn), 'Other');
+  assert.strictEqual(catHelper.getCategoryLabel('Sosyal Medya', tEn), 'Social');
+  assert.strictEqual(catHelper.getCategoryLabel('E-posta', tEn), 'Email');
+  assert.strictEqual(catHelper.getCategoryLabel('Alışveriş', tEn), 'Shopping');
+  assert.strictEqual(catHelper.getCategoryLabel('İş / Kurumsal', tEn), 'Work');
+  assert.strictEqual(catHelper.getCategoryLabel('Oyun', tEn), 'Gaming');
+  assert.strictEqual(catHelper.getCategoryLabel('Geliştirici / Araçlar', tEn), 'Developer');
+  assert.strictEqual(catHelper.getCategoryLabel('Eğitim', tEn), 'Education');
+
+  // Mobile TR / EN aliases also resolve bidirectionally to active UI language
+  assert.strictEqual(catHelper.getCategoryLabel('Finance', tTr), 'Finans');
+  assert.strictEqual(catHelper.getCategoryLabel('Social', tTr), 'Sosyal');
+  assert.strictEqual(catHelper.getCategoryLabel('Other', tTr), 'Diğer');
+  assert.strictEqual(catHelper.getCategoryLabel('Developer', tTr), 'Geliştirici');
+  assert.strictEqual(catHelper.getCategoryLabel('İş', tEn), 'Work');
+  assert.strictEqual(catHelper.getCategoryLabel('İŞ', tEn), 'Work');
+  assert.strictEqual(catHelper.getCategoryLabel('E-Ticaret', tEn), 'Shopping');
+
+  // Filtering and modal comparisons match equivalent categories across languages
+  assert.ok(catHelper.isSameCategory('Finans', 'Finance'));
+  assert.ok(catHelper.isSameCategory('Sosyal Medya', 'Social'));
+  assert.ok(catHelper.isSameCategory('İş / Kurumsal', 'Work'));
+  assert.ok(catHelper.isSameCategory('Diğer', 'Other'));
+  assert.ok(!catHelper.isSameCategory('Finans', 'Shopping'));
+
+  // Saving normalizes standard categories to canonical Turkish keys while preserving custom names
+  assert.strictEqual(catHelper.canonicalizeCategory('Finance'), 'Finans');
+  assert.strictEqual(catHelper.canonicalizeCategory('Social'), 'Sosyal Medya');
+  assert.strictEqual(catHelper.canonicalizeCategory('Shopping'), 'Alışveriş');
+  assert.strictEqual(catHelper.canonicalizeCategory('Developer'), 'Geliştirici / Araçlar');
+  assert.strictEqual(catHelper.canonicalizeCategory('CustomCrypto'), 'CustomCrypto');
+  assert.strictEqual(catHelper.getCategoryLabel('CustomCrypto', tEn), 'CustomCrypto');
+  assert.strictEqual(catHelper.isSameCategory('IS', 'Work'), false, 'Custom acronym IS should not collide with Turkish İş');
+
+  // Stale special filter labels saved in vault.categories translate to current language pill labels
+  assert.strictEqual(catHelper.resolveCategoryPillLabel('Girişler', tEn), 'Logins');
+  assert.strictEqual(catHelper.resolveCategoryPillLabel('Cards', tTr), 'Kartlar');
+
+  // Verify 1:1 TR/EN keys and integration in VaultCardItem, EditModal, and useVaultSearch
+  for (const k of catHelper.STANDARD_CATEGORY_KEYS) {
+    assert.ok(TRANSLATIONS.tr[k] && TRANSLATIONS.en[k], `Mobile i18n missing TR or EN for ${k}`);
+  }
+  const cardItemSrc = fs.readFileSync(path.join(__dirname, 'src', 'components', 'VaultCardItem.js'), 'utf8');
+  const editModalSrc = fs.readFileSync(path.join(__dirname, 'src', 'screens', 'EditModal.js'), 'utf8');
+  const searchHookSrc = fs.readFileSync(path.join(__dirname, 'src', 'hooks', 'useVaultSearch.js'), 'utf8');
+  assert.ok(cardItemSrc.includes('getCategoryLabel('), 'VaultCardItem must translate category badges with getCategoryLabel');
+  assert.ok(editModalSrc.includes('canonicalizeCategory(') && editModalSrc.includes('getCategoryLabel('), 'EditModal must display localized label and store canonical category');
+  assert.ok(searchHookSrc.includes('isSameCategory(') && searchHookSrc.includes('resolveCategoryPillLabel('), 'useVaultSearch must filter and deduplicate categories across languages');
+});
+
+test('14. Mobile JSON importer prevents ID collisions and stays byte-for-byte mirrored with Desktop services', () => {
+  const Importers = require('./src/services/importers');
+  const collidingVault = JSON.stringify({
+    type: 'fuin/vault',
+    entries: [
+      { id: 'collision-id-999999', type: 'login', site: 'bank.example', username: 'kadir', password: 'pw-updated' },
+      { id: 'collision-id-999999', type: 'login', site: 'mail.example', username: 'kadir', password: 'pw-mail' }
+    ]
+  });
+  const imported = Importers.importJSON(collidingVault, {
+    existingEntries: [{ id: 'collision-id-999999', type: 'login', site: 'bank.example', username: 'kadir', password: 'pw-old' }]
+  });
+  assert.strictEqual(imported.entries.length, 2);
+  assert.notStrictEqual(imported.entries[0].id, 'collision-id-999999', 'Existing vault ID collision must be re-keyed');
+  assert.notStrictEqual(imported.entries[1].id, imported.entries[0].id, 'Batch ID collision must be re-keyed');
+
+  const siblingDesktopServices = path.resolve(__dirname, '..', 'Fuin', 'services');
+  if (fs.existsSync(siblingDesktopServices)) {
+    for (const rel of ['totpEngine.js', 'importers/detector.js', 'importers/csvImporter.js', 'importers/jsonImporter.js', 'importers/index.js']) {
+      const mobileBuf = fs.readFileSync(path.join(__dirname, 'src', 'services', rel));
+      const desktopBuf = fs.readFileSync(path.join(siblingDesktopServices, rel));
+      assert.ok(mobileBuf.equals(desktopBuf), `Shared service ${rel} must stay mirrored byte-for-byte with Desktop`);
+    }
+  }
 });
 
 console.log('═'.repeat(75));

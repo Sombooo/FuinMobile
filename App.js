@@ -21,7 +21,7 @@ import * as ScreenCapture from 'expo-screen-capture';
 import { clearIfExpired } from './src/clipboardManager';
 import useVaultLifecycle from './src/hooks/useVaultLifecycle';
 import useAutofillSync from './src/hooks/useAutofillSync';
-import { initSessionKey, clearSessionKey, protectEntries, unprotectEntries } from './src/services/sessionSecurity';
+import { initSessionKey, clearSessionKey, isSessionActive, protectEntries, unprotectEntries } from './src/services/sessionSecurity';
 import { autofillService } from './src/services/autofillService';
 
 import LockScreen from './src/screens/LockScreen';
@@ -166,7 +166,20 @@ function AppInner() {
   const [sharedEntryData, setSharedEntryData] = useState(null);
 
   useEffect(() => {
-    // Ekran koruması: FLAG_SECURE ve ekran görüntüsü/kaydı engelleme varsayılan olarak açıktır.
+    // Ekran koruması: Üretim derlemelerinde (__DEV__ === false) FLAG_SECURE koşulsuz açıktır.
+    // Yalnızca yerel dev oturumunda EXPO_PUBLIC_DEV_SCREENSHOTS=1 ile geçici olarak devre dışı bırakılabilir.
+    const allowDevScreenshots =
+      typeof __DEV__ !== 'undefined' &&
+      __DEV__ === true &&
+      process.env.EXPO_PUBLIC_DEV_SCREENSHOTS === '1';
+
+    if (allowDevScreenshots) {
+      ScreenCapture.allowScreenCaptureAsync().catch(console.warn);
+      return () => {
+        ScreenCapture.preventScreenCaptureAsync().catch(() => {});
+      };
+    }
+
     ScreenCapture.preventScreenCaptureAsync().catch(console.warn);
   }, []);
 
@@ -188,7 +201,7 @@ function AppInner() {
         site: title || parsedHost,
         url: isUrl ? text : '',
         notes: isUrl ? '' : text,
-        category: t('cat_other')
+        category: 'Diğer'
       });
       resetShareIntent();
     }
@@ -793,7 +806,7 @@ function AppInner() {
       if (vaultData) {
         try {
           const parsed = typeof vaultData === 'string' ? JSON.parse(vaultData) : vaultData;
-          if (Array.isArray(parsed?.entries)) existingEntries = parsed.entries;
+          if (Array.isArray(parsed?.entries)) existingEntries = unprotectEntries(parsed.entries);
           if (Array.isArray(parsed?.categories)) existingCategories = parsed.categories;
         } catch {}
       } else {
@@ -838,7 +851,14 @@ function AppInner() {
 
       await checkLocalVault();
       setPassword(targetMasterPassword);
-      setVaultData(finalVaultJson);
+      if (!isSessionActive()) {
+        initSessionKey();
+      }
+      const protectedVault = {
+        ...finalVault,
+        entries: protectEntries(mergedEntries)
+      };
+      setVaultData(JSON.stringify(protectedVault));
       
       setChunkAssembler(null);
       setChunks({});

@@ -43,6 +43,7 @@ const PURE_JS_TARGETS = [
   'src/services/importers/index.js',
   'src/services/changelogData.js',
   'src/services/cardFormatter.js',
+  'src/services/categoryHelper.js',
 ];
 
 console.log('[1. Pure Domain Service VM Compilation]');
@@ -75,6 +76,7 @@ const ALL_SOURCE_FILES = [
   'src/services/updateCore.js',
   'src/services/updateService.js',
   'src/services/cardFormatter.js',
+  'src/services/categoryHelper.js',
 ];
 
 console.log('\n[2. Top-Level Const Reassignment Guard (no-const-assign)]');

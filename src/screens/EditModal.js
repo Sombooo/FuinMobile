@@ -12,6 +12,7 @@ import { memDecrypt } from '../services/sessionSecurity';
 import { copySecure } from '../clipboardManager';
 import { detectCardBrand, formatCardNumber, formatCardExpiry } from '../services/cardFormatter';
 import { parseOtpAuthUri } from '../services/totpEngine';
+import { canonicalizeCategory, getCategoryKey, getCategoryLabel, isSameCategory } from '../services/categoryHelper';
 
 export default function EditModal({ visible, entry, allCategories, onClose, onSave, onDelete, onRestore, onOpenTotpScanner }) {
   const { theme } = useTheme();
@@ -21,7 +22,7 @@ export default function EditModal({ visible, entry, allCategories, onClose, onSa
 
   const [entryType, setEntryType] = useState('login');
   const [site, setSite] = useState('');
-  const [category, setCategory] = useState(t('cat_other'));
+  const [category, setCategory] = useState('Diğer');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [url, setUrl] = useState('');
@@ -70,33 +71,39 @@ export default function EditModal({ visible, entry, allCategories, onClose, onSa
 
     if (justOpened || entrySwitched) {
       if (entry) {
+        const readEditableSecret = (val, allowArtifact = false) => {
+          const dec = val && typeof val === 'object' ? memDecrypt(val) : (val || '');
+          return (!allowArtifact && dec === '[object Object]') ? '' : String(dec);
+        };
         const type = entry.type || 'login';
+        const totpPlain = readEditableSecret(entry.totp);
         setEntryType(type);
         setSite(entry.site || '');
-        setCategory(entry.category || (type === 'card' ? t('cat_finance') : t('cat_other')));
+        setCategory(canonicalizeCategory(entry.category || (type === 'card' ? 'Finans' : 'Diğer')) || (type === 'card' ? 'Finans' : 'Diğer'));
         setUsername(entry.username || '');
-        setPassword(entry.password ? (typeof entry.password === 'object' ? memDecrypt(entry.password) : entry.password) : '');
+        setPassword(readEditableSecret(entry.password, true));
         setUrl(entry.url || '');
         setNote(entry.note || '');
-        setTotp(entry.totp ? (typeof entry.totp === 'object' ? memDecrypt(entry.totp) : entry.totp) : '');
-        setHasTotp(!!entry.totp);
+        setTotp(totpPlain);
+        setHasTotp(!!totpPlain);
         setFav(!!entry.fav);
         setReprompt(!!entry.reprompt);
 
         // Card fields
         setCardholderName(entry.cardholderName || entry.username || '');
-        const rawCardNum = entry.cardNumber ? (typeof entry.cardNumber === 'object' ? memDecrypt(entry.cardNumber) : entry.cardNumber) : '';
+        const rawCardNum = readEditableSecret(entry.cardNumber);
         setCardNumber(formatCardNumber(rawCardNum).formatted);
         setCardExpiry(entry.cardExpiry || '');
-        setCardCvv(entry.cardCvv ? (typeof entry.cardCvv === 'object' ? memDecrypt(entry.cardCvv) : entry.cardCvv) : '');
-        setCardPin(entry.cardPin ? (typeof entry.cardPin === 'object' ? memDecrypt(entry.cardPin) : entry.cardPin) : '');
+        setCardCvv(readEditableSecret(entry.cardCvv));
+        setCardPin(readEditableSecret(entry.cardPin));
 
         // Secure Note fields
-        setSecureNote(entry.secureNote ? (typeof entry.secureNote === 'object' ? memDecrypt(entry.secureNote) : entry.secureNote) : '');
+        const rawSecureNote = readEditableSecret(entry.secureNote) || (entry.type === 'note' ? readEditableSecret(entry.note) : '');
+        setSecureNote(rawSecureNote);
       } else {
         setEntryType('login');
         setSite('');
-        setCategory(t('cat_other'));
+        setCategory('Diğer');
         setUsername('');
         setPassword('');
         setUrl('');
@@ -192,10 +199,11 @@ export default function EditModal({ visible, entry, allCategories, onClose, onSa
   const handleTypeChange = (newType) => {
     setEntryType(newType);
     if (!entry) {
-      if (newType === 'card' && (category === t('cat_other') || !category)) {
-        setCategory(t('cat_finance'));
-      } else if (newType === 'note' && (category === t('cat_finance') || !category)) {
-        setCategory(t('cat_other'));
+      const catKey = getCategoryKey(category);
+      if (newType === 'card' && (catKey === 'cat_other' || !category)) {
+        setCategory('Finans');
+      } else if ((newType === 'note' || newType === 'login') && (catKey === 'cat_finance' || !category)) {
+        setCategory('Diğer');
       }
     }
   };
@@ -219,7 +227,7 @@ export default function EditModal({ visible, entry, allCategories, onClose, onSa
       }
     }
 
-    const finalCategory = category.trim() || (entryType === 'card' ? t('cat_finance') : t('cat_other'));
+    const finalCategory = canonicalizeCategory(category) || (entryType === 'card' ? 'Finans' : 'Diğer');
     const now = Date.now();
     let history = entry && Array.isArray(entry.history) ? [...entry.history] : [];
     const oldPassword = entry && entry.password ? (typeof entry.password === 'object' ? memDecrypt(entry.password) : entry.password) : null;
@@ -367,7 +375,7 @@ export default function EditModal({ visible, entry, allCategories, onClose, onSa
               <View style={{ flex: 1, marginRight: 15 }}>
                 <CustomText style={styles.label}>{t('fieldCategory')}</CustomText>
                 <TouchableOpacity style={styles.catPickerBtn} onPress={() => setCatVisible(true)} activeOpacity={0.7} delayPressIn={0}>
-                  <CustomText style={{ color: theme.text, fontSize: 15 }}>{category}</CustomText>
+                  <CustomText style={{ color: theme.text, fontSize: 15 }}>{getCategoryLabel(category, t)}</CustomText>
                 </TouchableOpacity>
               </View>
               <View style={{ alignItems: 'center' }}>
@@ -615,12 +623,15 @@ export default function EditModal({ visible, entry, allCategories, onClose, onSa
           <View style={styles.catModal}>
             <CustomText style={styles.catTitle}>{t('selectCategoryTitle')}</CustomText>
             <ScrollView style={{ maxHeight: 250, marginVertical: 15 }} keyboardShouldPersistTaps="handled">
-              {allCategories && allCategories.map(c => (
-                <TouchableOpacity key={c} style={styles.catItem} activeOpacity={0.7} delayPressIn={0} onPress={() => { setCategory(c); setCatVisible(false); }}>
-                  <CustomText style={[styles.catItemText, category === c && { color: theme.accent }]}>{c}</CustomText>
-                  {category === c && <CustomText style={{ color: theme.accent }}>✓</CustomText>}
-                </TouchableOpacity>
-              ))}
+              {allCategories && allCategories.map(c => {
+                const selected = isSameCategory(category, c);
+                return (
+                  <TouchableOpacity key={c} style={styles.catItem} activeOpacity={0.7} delayPressIn={0} onPress={() => { setCategory(canonicalizeCategory(c)); setCatVisible(false); }}>
+                    <CustomText style={[styles.catItemText, selected && { color: theme.accent }]}>{getCategoryLabel(c, t)}</CustomText>
+                    {selected && <CustomText style={{ color: theme.accent }}>✓</CustomText>}
+                  </TouchableOpacity>
+                );
+              })}
             </ScrollView>
             <TouchableOpacity style={{ marginTop: 20, alignItems: 'center' }} activeOpacity={0.7} delayPressIn={0} onPress={() => setCatVisible(false)}>
               <CustomText style={{ color: theme.muted }}>{t('btnClose')}</CustomText>

@@ -1,6 +1,8 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import crypto from 'react-native-quick-crypto';
 
+import { getCategoryKey, getCategoryLabel, isSameCategory, resolveCategoryPillLabel } from '../services/categoryHelper';
+
 const SPECIAL_CAT_KEYS = ['cat_all', 'navLogins', 'navCards', 'navNotes', 'cat_fav', 'cat_trash'];
 
 /**
@@ -33,12 +35,22 @@ export function useVaultSearch({ vaultData, t }) {
     t('cat_fav'),
     t('cat_trash'),
     t('cat_social'),
+    t('cat_email'),
     t('cat_work'),
     t('cat_shopping'),
     t('cat_finance'),
+    t('cat_gaming'),
+    t('cat_dev'),
     t('cat_education'),
     t('cat_other')
   ], [t]);
+
+  useEffect(() => {
+    const stdKey = getCategoryKey(activeCategory);
+    if (stdKey && activeCategory !== t(stdKey)) {
+      setActiveCategory(t(stdKey));
+    }
+  }, [t]);
 
   const parsedVault = useMemo(() => {
     try {
@@ -95,7 +107,10 @@ export function useVaultSearch({ vaultData, t }) {
   }, [vaultData]);
 
   const allCategories = useMemo(() => {
-    return [t('cat_all'), ...new Set([...DEFAULT_CATEGORIES, ...parsedVault.categories])];
+    const localizedParsed = (parsedVault.categories || [])
+      .map(c => resolveCategoryPillLabel(c, t))
+      .filter(Boolean);
+    return [t('cat_all'), ...new Set([...DEFAULT_CATEGORIES, ...localizedParsed])];
   }, [DEFAULT_CATEGORIES, parsedVault.categories, t]);
 
   const entries = parsedVault.entries;
@@ -115,7 +130,7 @@ export function useVaultSearch({ vaultData, t }) {
       } else if (activeCategory === t('navNotes')) {
         filtered = filtered.filter(e => e.type === 'note');
       } else if (activeCategory !== t('cat_all')) {
-        filtered = filtered.filter(e => (e.category || t('cat_other')) === activeCategory);
+        filtered = filtered.filter(e => isSameCategory(e.category || (e.type === 'card' ? 'Finans' : 'Diğer'), activeCategory));
       }
     }
 
@@ -128,7 +143,8 @@ export function useVaultSearch({ vaultData, t }) {
         (e.cardBrand || '').toLowerCase().includes(q) ||
         (e.cardLastFour || '').toLowerCase().includes(q) ||
         (e.note || '').toLowerCase().includes(q) ||
-        (e.category || '').toLowerCase().includes(q)
+        (e.category || '').toLowerCase().includes(q) ||
+        getCategoryLabel(e.category || (e.type === 'card' ? 'Finans' : 'Diğer'), t).toLowerCase().includes(q)
       );
     }
 

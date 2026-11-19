@@ -274,7 +274,7 @@ export default function VaultScreen({
       setSelectedEntry({
         id: Date.now().toString(),
         site: sharedEntryData.site || '',
-        category: sharedEntryData.category || t('cat_other'),
+        category: sharedEntryData.category || 'Diğer',
         username: sharedEntryData.username || '',
         password: sharedEntryData.password || '',
         url: sharedEntryData.url || '',
@@ -831,7 +831,7 @@ export default function VaultScreen({
                     const content = await readPickedFileText(result.assets[0]);
                     const res = FuinImporters.importJSON(content, {
                       existingEntries: unprotectEntries(entries),
-                      defaultCategory: t('cat_other')
+                      defaultCategory: 'Diğer'
                     });
                     if (res.entries.length === 0) {
                       showAlert(t('alertInfo'), res.skippedCount > 0 ? t('ioAllDuplicatesOrSkipped') : t('ioInvalidJsonError'));
@@ -857,7 +857,7 @@ export default function VaultScreen({
                     const content = await readPickedFileText(result.assets[0]);
                     const res = FuinImporters.importCSV(content, {
                       existingEntries: unprotectEntries(entries),
-                      defaultCategory: t('cat_other')
+                      defaultCategory: 'Diğer'
                     });
 
                     if (res.format === 'unknown' && res.entries.length === 0) {
@@ -923,7 +923,7 @@ export default function VaultScreen({
                       const plainJson = await decryptFuinBackup(ciphertext, password, kdf);
                       const res = FuinImporters.importJSON(plainJson, {
                         existingEntries: unprotectEntries(entries),
-                        defaultCategory: t('cat_other'),
+                        defaultCategory: 'Diğer',
                       });
                       if (res.entries.length === 0) {
                         showAlert(t('alertInfo'), res.skippedCount > 0 ? t('ioAllDuplicatesOrSkipped') : t('ioInvalidFuinFile'));
@@ -1404,7 +1404,7 @@ export default function VaultScreen({
                     const plainJson = await decryptFuinBackup(encBackupRaw, encBackupPw);
                     const res = FuinImporters.importJSON(plainJson, {
                       existingEntries: unprotectEntries(entries),
-                      defaultCategory: t('cat_other'),
+                      defaultCategory: 'Diğer',
                     });
                     setEncBackupRaw(null);
                     setEncBackupPw('');

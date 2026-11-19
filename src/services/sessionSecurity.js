@@ -84,6 +84,19 @@
 
   function memEncrypt(text) {
     if (text === null || text === undefined || text === '') return '';
+    if (typeof text === 'object') {
+      if (typeof text.iv === 'string' && typeof text.tag === 'string' && typeof text.data === 'string') {
+        if (_sessionKey) {
+          var decrypted = memDecrypt(text);
+          if (!decrypted) return '';
+          text = decrypted;
+        } else {
+          return text;
+        }
+      } else {
+        return '';
+      }
+    }
     if (!_sessionKey) return text;
 
     var crypto = getCryptoModule();
@@ -140,44 +153,47 @@
     }
   }
 
-  function protectEntries(entries) {
+  var SECRET_FIELDS = ['password', 'totp', 'cardNumber', 'cardCvv', 'cardPin', 'secureNote'];
+
+  function scrubLegacyArtifact(field, val) {
+    return field !== 'password' && val === '[object Object]' ? '' : val;
+  }
+
+  function transformRecordSecrets(record, fn, isHistory) {
+    if (!record || typeof record !== 'object') return record;
+    var updated = {};
+    for (var i = 0; i < SECRET_FIELDS.length; i++) {
+      var field = SECRET_FIELDS[i];
+      var alwaysInclude = (field === 'password' && !isHistory) || (field === 'totp' && !isHistory) || (isHistory && field === 'password');
+      if (alwaysInclude || record[field] !== undefined) {
+        var raw = record[field];
+        var preClean = typeof raw === 'string' ? scrubLegacyArtifact(field, raw) : raw;
+        var transformed = fn(preClean);
+        updated[field] = typeof transformed === 'string' ? scrubLegacyArtifact(field, transformed) : transformed;
+      }
+    }
+    return updated;
+  }
+
+  function transformEntriesSecrets(entries, fn) {
     if (!Array.isArray(entries)) return [];
     return entries.map(function (entry) {
       if (!entry || typeof entry !== 'object') return entry;
-      var updated = {
-        password: memEncrypt(entry.password),
-        totp: memEncrypt(entry.totp),
-        history: Array.isArray(entry.history) ? entry.history.map(function (h) {
-          if (!h || typeof h !== 'object') return h;
-          return Object.assign({}, h, { password: memEncrypt(h.password) });
-        }) : []
-      };
-      if (entry.cardNumber !== undefined) updated.cardNumber = memEncrypt(entry.cardNumber);
-      if (entry.cardCvv !== undefined) updated.cardCvv = memEncrypt(entry.cardCvv);
-      if (entry.cardPin !== undefined) updated.cardPin = memEncrypt(entry.cardPin);
-      if (entry.secureNote !== undefined) updated.secureNote = memEncrypt(entry.secureNote);
+      var updated = transformRecordSecrets(entry, fn, false);
+      updated.history = Array.isArray(entry.history) ? entry.history.map(function (h) {
+        if (!h || typeof h !== 'object') return h;
+        return Object.assign({}, h, transformRecordSecrets(h, fn, true));
+      }) : [];
       return Object.assign({}, entry, updated);
     });
   }
 
+  function protectEntries(entries) {
+    return transformEntriesSecrets(entries, memEncrypt);
+  }
+
   function unprotectEntries(entries) {
-    if (!Array.isArray(entries)) return [];
-    return entries.map(function (entry) {
-      if (!entry || typeof entry !== 'object') return entry;
-      var updated = {
-        password: memDecrypt(entry.password),
-        totp: memDecrypt(entry.totp),
-        history: Array.isArray(entry.history) ? entry.history.map(function (h) {
-          if (!h || typeof h !== 'object') return h;
-          return Object.assign({}, h, { password: memDecrypt(h.password) });
-        }) : []
-      };
-      if (entry.cardNumber !== undefined) updated.cardNumber = memDecrypt(entry.cardNumber);
-      if (entry.cardCvv !== undefined) updated.cardCvv = memDecrypt(entry.cardCvv);
-      if (entry.cardPin !== undefined) updated.cardPin = memDecrypt(entry.cardPin);
-      if (entry.secureNote !== undefined) updated.secureNote = memDecrypt(entry.secureNote);
-      return Object.assign({}, entry, updated);
-    });
+    return transformEntriesSecrets(entries, memDecrypt);
   }
 
   return {

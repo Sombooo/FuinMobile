@@ -3,6 +3,12 @@ import { View, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import CustomText from './CustomText';
 import { memDecrypt } from '../services/sessionSecurity';
+import { getCategoryLabel } from '../services/categoryHelper';
+
+function resolveSecretDisplay(val) {
+  const out = val && typeof val === 'object' ? memDecrypt(val) : (val || '');
+  return out === '[object Object]' ? '' : out;
+}
 
 const VaultCardItem = React.memo(function VaultCardItem({
   item,
@@ -19,12 +25,13 @@ const VaultCardItem = React.memo(function VaultCardItem({
   const isCard = item.type === 'card';
   const isNote = item.type === 'note';
 
+  const visibleCardNumber = isCard ? resolveSecretDisplay(item.cardNumber) : '';
+  const visibleSecureNote = isNote ? resolveSecretDisplay(item.secureNote) : '';
+
   // Format card number preview or decrypted value
-  const rawNum = (item.cardNumber && typeof item.cardNumber === 'string')
-    ? item.cardNumber.replace(/\D/g, '')
-    : '';
+  const rawNum = visibleCardNumber ? String(visibleCardNumber).replace(/\D/g, '') : '';
   const cardLast4 = item.cardLastFour || (rawNum ? rawNum.slice(-4) : '••••');
-  const cardBrand = item.cardBrand ? item.cardBrand.toUpperCase() : '';
+  const cardBrand = item.cardBrand && item.cardBrand !== 'generic' ? item.cardBrand.toUpperCase() : '';
 
   return (
     <TouchableOpacity
@@ -59,7 +66,7 @@ const VaultCardItem = React.memo(function VaultCardItem({
             </View>
           )}
         </View>
-        <CustomText style={styles.cardCategory} numberOfLines={1}>{item.category || (isCard ? t('cat_finance') : t('cat_other'))}</CustomText>
+        <CustomText style={styles.cardCategory} numberOfLines={1}>{getCategoryLabel(item.category || (isCard ? 'Finans' : 'Diğer'), t)}</CustomText>
       </View>
 
       {/* ── CARD VIEW ── */}
@@ -96,7 +103,7 @@ const VaultCardItem = React.memo(function VaultCardItem({
               <TouchableOpacity
                 activeOpacity={0.6}
                 delayPressIn={0}
-                onPress={() => onCopy(item.cardNumber, t('fieldCardNumber'), item, 30000)}
+                onPress={() => onCopy(visibleCardNumber, t('fieldCardNumber'), item, 30000)}
                 style={localStyles.numberTouch}
               >
                 <CustomText
@@ -109,7 +116,7 @@ const VaultCardItem = React.memo(function VaultCardItem({
                   minimumFontScale={0.85}
                 >
                   {isPwVisible
-                    ? (typeof item.cardNumber === 'object' ? memDecrypt(item.cardNumber) : item.cardNumber)
+                    ? (visibleCardNumber || '—')
                     : (cardLast4 ? `•••• •••• •••• ${cardLast4}` : '•••• •••• •••• ••••')}
                 </CustomText>
               </TouchableOpacity>
@@ -188,7 +195,7 @@ const VaultCardItem = React.memo(function VaultCardItem({
                 activeOpacity={0.7}
                 delayPressIn={0}
                 style={[localStyles.actionBtn, { borderColor: 'rgba(90, 154, 110, 0.35)', backgroundColor: 'rgba(90, 154, 110, 0.08)' }]}
-                onPress={() => onCopy(item.secureNote, t('fieldNote'), item, 45000)}
+                onPress={() => onCopy(visibleSecureNote, t('fieldNote'), item, 45000)}
               >
                 <Feather name="copy" size={11} color={theme.accent} />
                 <CustomText style={[localStyles.actionBtnText, { color: theme.accent }]}>{t('btnCopyNote')}</CustomText>
@@ -213,7 +220,7 @@ const VaultCardItem = React.memo(function VaultCardItem({
               numberOfLines={isPwVisible ? 6 : 2}
             >
               {isPwVisible
-                ? (typeof item.secureNote === 'object' ? memDecrypt(item.secureNote) : (item.secureNote || '—'))
+                ? (visibleSecureNote || '—')
                 : '••••••••••••••••••••••••••••••••'}
             </CustomText>
           </TouchableOpacity>
