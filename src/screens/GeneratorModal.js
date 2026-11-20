@@ -2,7 +2,6 @@ import CustomText from '../components/CustomText';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, Modal, Switch, SafeAreaView, Platform, StatusBar, Animated, Alert } from 'react-native';
 import { useTheme } from '../theme';
-import * as Clipboard from 'expo-clipboard';
 import { Feather } from '@expo/vector-icons';
 import Slider from '@react-native-community/slider';
 import { useI18n } from '../i18n';

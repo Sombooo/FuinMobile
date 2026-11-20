@@ -10,7 +10,6 @@ import { useTheme } from '../theme';
 import Svg, { Polygon, Path, Circle, Rect, Polyline, Line } from 'react-native-svg';
 import * as SecureStore from 'expo-secure-store';
 import * as LocalAuthentication from 'expo-local-authentication';
-import * as ClipboardExpo from 'expo-clipboard';
 import EditModal from './EditModal';
 import HealthModal from './HealthModal';
 import WhatsNewModal from './WhatsNewModal';
@@ -206,7 +205,7 @@ export default function VaultScreen({
       try {
         const AsyncStorage = require('@react-native-async-storage/async-storage').default;
         const lastSeen = await AsyncStorage.getItem('fuin_last_seen_changelog');
-        const curVer = updater.currentVersion || '1.0.0-beta.11';
+        const curVer = updater.currentVersion || '1.0.0-beta.12';
         const { isNewerVersion } = require('../services/updateCore');
         if (!lastSeen || isNewerVersion(curVer, lastSeen)) {
           setTimeout(() => {
@@ -389,7 +388,7 @@ export default function VaultScreen({
     }
     const textToCopy = typeof val === 'object' && val !== null ? memDecrypt(val) : String(val || '');
     const duration = customDuration || (label === t('fieldCardCvv') || label === t('fieldCardPin') ? 20000 : (label === t('fieldPassword') || label === t('fieldNote') || label === t('fieldSecureNoteContent') ? 45000 : 30000));
-    await copySecure(textToCopy, duration);
+    await copySecure(textToCopy, duration, { isSensitive: true });
     let msg = label + t('toastCopiedClipboard30s');
     if (label === t('fieldPassword')) {
       msg = t('toastCopiedClipboard45s');
@@ -527,7 +526,7 @@ export default function VaultScreen({
 
   const handleCopyTotpCode = useCallback(async () => {
     if (!totpState.valid || !totpState.token || totpState.token.includes('-')) return;
-    await copySecure(totpState.token, 30000);
+    await copySecure(totpState.token, 30000, { isSensitive: true });
     showAlert(t('alertCopied'), t('toastTotpCopied'));
   }, [totpState, showAlert, t]);
 

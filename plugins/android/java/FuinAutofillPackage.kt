@@ -10,7 +10,8 @@ class FuinAutofillPackage : ReactPackage {
     override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> {
         return listOf(
             FuinAutofillModule(reactContext),
-            FuinAppUpdaterModule(reactContext)
+            FuinAppUpdaterModule(reactContext),
+            FuinClipboardModule(reactContext)
         )
     }
 

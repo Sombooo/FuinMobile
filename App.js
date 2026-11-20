@@ -15,10 +15,9 @@ import { ThemeProvider, useTheme } from './src/theme';
 import * as SecureStore from 'expo-secure-store';
 import * as Font from 'expo-font';
 import * as LocalAuthentication from 'expo-local-authentication';
-import * as ClipboardExpo from 'expo-clipboard';
 import { Buffer } from '@craftzdog/react-native-buffer';
 import * as ScreenCapture from 'expo-screen-capture';
-import { clearIfExpired } from './src/clipboardManager';
+import { clearIfExpired, copySecure } from './src/clipboardManager';
 import useVaultLifecycle from './src/hooks/useVaultLifecycle';
 import useAutofillSync from './src/hooks/useAutofillSync';
 import { initSessionKey, clearSessionKey, isSessionActive, protectEntries, unprotectEntries } from './src/services/sessionSecurity';
@@ -1317,7 +1316,7 @@ function AppInner() {
                   activeOpacity={0.7}
                   delayPressIn={0}
                   onPress={async () => {
-                    await ClipboardExpo.setStringAsync(masterKeyData);
+                    await copySecure(masterKeyData, 45000);
                     toast.showToast(t('toastRecoveryKeyCopied'));
                   }}
                 >

@@ -6,11 +6,54 @@
 
 const CHANGELOG_ENTRIES = [
   {
+    version: '1.0.0-beta.12',
+    tag: 'v1.0.0-beta.12',
+    date: 'Kasım 2026',
+    dateEn: 'November 2026',
+    isCurrent: true,
+    title: 'Native Android Pano Güvenliği & Arka Plan Otomatik Temizleme',
+    titleEn: 'Native Android Clipboard Security & Background Auto-Clear',
+    summary: 'Bitwarden / KeePassDX standardında Android EXTRA_IS_SENSITIVE maskelemesi, AlarmManager + BroadcastReceiver ile arka planda güvenilir clearPrimaryClip() temizliği, harici kopya koruması ve kurtarma anahtarı güvenli kopyalama sunar.',
+    summaryEn: 'Brings Bitwarden / KeePassDX grade native Android EXTRA_IS_SENSITIVE masking, background AlarmManager + clearPrimaryClip() auto-clearing, external copy preservation via OnPrimaryClipChangedListener, and secure recovery key copying.',
+    highlights: [
+      {
+        badge: 'security',
+        badgeText: 'PANO GÜVENLİĞİ',
+        badgeTextEn: 'CLIPBOARD GUARD',
+        icon: 'shield-check',
+        title: 'EXTRA_IS_SENSITIVE Maskeleme & Gerçek clearPrimaryClip()',
+        titleEn: 'EXTRA_IS_SENSITIVE Masking & Native clearPrimaryClip()',
+        desc: 'Kopyalanan şifre, kart, 2FA ve kurtarma anahtarları Android 13+ pano önizlemesinde gizlenir; süre bitince Android sistem panosu clearPrimaryClip() ile kesin olarak temizlenir.',
+        descEn: 'Copied passwords, cards, 2FA codes, and recovery keys are flagged sensitive on Android 13+ preview sheets and wiped directly via ClipboardManager.clearPrimaryClip() upon expiry.'
+      },
+      {
+        badge: 'mobile',
+        badgeText: 'ARKA PLAN',
+        badgeTextEn: 'BACKGROUND',
+        icon: 'smartphone',
+        title: 'AlarmManager + Harici Kopya Koruması (OnPrimaryClipChangedListener)',
+        titleEn: 'AlarmManager + External Copy Preservation',
+        desc: 'Uygulama arka plana atılsa dahi OS AlarmManager + ClipboardClearReceiver temizliği tamamlar; arada başka bir metin kopyalanırsa eski zamanlayıcı yeni panonuzu asla silmez.',
+        descEn: 'OS-level AlarmManager + ClipboardClearReceiver fires reliably even when backgrounded, while OnPrimaryClipChangedListener cancels stale timers if you copy something else.'
+      },
+      {
+        badge: 'crypto',
+        badgeText: 'KURTARMA & STABİLİTE',
+        badgeTextEn: 'RECOVERY & SYNC',
+        icon: 'key',
+        title: 'Kurtarma Anahtarı Kopyalama & Android 10+ Arka Plan Düzeltmesi',
+        titleEn: 'Recovery Key Secure Copy & Android 10+ Fallback Fix',
+        desc: 'Kurtarma anahtarı kopyalaması zaman aşımı korumasına alındı; Android 10+/iOS arka plan kısıtı nedeniyle sürenin erken silinmesi hatası giderildi ve hiçbir açık metin diske yazılmaz.',
+        descEn: 'Routed recovery key copying through copySecure(), fixed premature expiry deletion under Android 10+/iOS background restrictions, and persisted zero plaintext.'
+      }
+    ]
+  },
+  {
     version: '1.0.0-beta.11',
     tag: 'v1.0.0-beta.11',
     date: 'Kasım 2026',
     dateEn: 'November 2026',
-    isCurrent: true,
+    isCurrent: false,
     title: '2FA QR Tarayıcı, Canlı TOTP, Tek Adım Biyometrik Kilit & Taşınabilir Yedek Eşliği',
     titleEn: '2FA QR Scanner, Live TOTP, Single-Step Biometric Unlock & Portable Backup Parity',
     summary: '2FA otpauth:// QR kamera tarayıcı, canlı 30 sn TOTP kodu gösterimi, tek adım biyometrik kilit açma, çapraz platform .fuin / CSV / JSON kart-not içe aktarma ve LAN Eşitleme Hotspot rehberliği sunar.',

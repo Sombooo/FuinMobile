@@ -255,6 +255,27 @@ const withAndroidAutofill = (config) => {
       });
     }
 
+    // Ensure non-exported ClipboardClearReceiver is declared for OS-level clipboard auto-clear alarms
+    mainApplication.receiver = mainApplication.receiver || [];
+    const hasClipboardClearReceiver = mainApplication.receiver.some(
+      (r) => r.$ && r.$['android:name'] === '.ClipboardClearReceiver'
+    );
+    if (!hasClipboardClearReceiver) {
+      mainApplication.receiver.push({
+        $: {
+          'android:name': '.ClipboardClearReceiver',
+          'android:exported': 'false',
+        },
+      });
+    } else {
+      const clipReceiver = mainApplication.receiver.find(
+        (r) => r.$ && r.$['android:name'] === '.ClipboardClearReceiver'
+      );
+      if (clipReceiver && clipReceiver.$) {
+        clipReceiver.$['android:exported'] = 'false';
+      }
+    }
+
     return config;
   });
 };
