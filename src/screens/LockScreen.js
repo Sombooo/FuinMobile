@@ -5,11 +5,10 @@ import { StyleSheet, Text, View, TextInput, TouchableOpacity, SafeAreaView, Keyb
 import Svg, { Polygon } from 'react-native-svg';
 import { useTheme } from '../theme';
 import { clearVault } from '../storage';
-import * as SecureStore from 'expo-secure-store';
+import { verifyAndRecoverPassword } from '../services/recoveryService';
 import { useToast } from '../components/Toast';
 import { useI18n } from '../i18n';
 import { useAlert } from '../components/CustomAlert';
-import { Buffer } from '@craftzdog/react-native-buffer';
 
 export default function LockScreen({ password, setPassword, onLogin, onSync, onCreateVault, onVaultErased, hasVault, syncMode }) {
   const { theme, themeMode } = useTheme();
@@ -61,67 +60,16 @@ export default function LockScreen({ password, setPassword, onLogin, onSync, onC
     }
 
     try {
-      const crypto = require('react-native-quick-crypto');
-      const savedHashHex = await SecureStore.getItemAsync('fuin-recovery-code-hash');
-      const encryptedPassB64 = await SecureStore.getItemAsync('fuin-recovery-data');
-      
-      // Legacy fallback just in case the user hasn't updated their vault yet
-      const legacyKey = await SecureStore.getItemAsync('fuin-recovery-code');
-      const legacyPass = await SecureStore.getItemAsync('fuin-recovery-pass');
-      
-      if (!savedHashHex && !legacyKey) {
-        toast.showToast(t('toastNoRecoveryFound'));
-        return;
-      }
-      
-      const input = recoveryInput.trim().toUpperCase();
-      let isMatch = false;
-      let recoveredPassword = null;
+      const res = await verifyAndRecoverPassword(recoveryInput);
 
-      if (savedHashHex && encryptedPassB64) {
-        const inputHash = crypto.createHash('sha256').update(input).digest();
-        const targetHash = Buffer.from(savedHashHex, 'hex');
-        
-        if (inputHash.length === targetHash.length && crypto.timingSafeEqual(inputHash, targetHash)) {
-          isMatch = true;
-          // Decrypt the password
-          const { deriveLocalKey } = require('../crypto');
-          const payload = Buffer.from(encryptedPassB64, 'base64');
-          const recoverySalt = payload.subarray(0, 32);
-          const iv = payload.subarray(32, 44);
-          const authTag = payload.subarray(44, 60);
-          const ciphertext = payload.subarray(60);
-          
-          const recoveryKey = await deriveLocalKey(input, recoverySalt);
-          try {
-            const decipher = crypto.createDecipheriv('aes-256-gcm', recoveryKey, iv);
-            decipher.setAuthTag(authTag);
-            let dec = decipher.update(ciphertext);
-            dec = Buffer.concat([dec, decipher.final()]);
-            recoveredPassword = dec.toString('utf8');
-            dec.fill(0);
-          } finally {
-            recoveryKey.fill(0);
-          }
-        }
-      } else if (legacyKey && legacyPass) {
-        const inputHash = crypto.createHash('sha256').update(input).digest();
-        const targetHash = crypto.createHash('sha256').update(legacyKey.toUpperCase()).digest();
-        if (inputHash.length === targetHash.length && crypto.timingSafeEqual(inputHash, targetHash)) {
-          isMatch = true;
-          recoveredPassword = legacyPass;
-          // Clean up legacy plaintext keys once recovered
-          await SecureStore.deleteItemAsync('fuin-recovery-code').catch(() => {});
-          await SecureStore.deleteItemAsync('fuin-recovery-pass').catch(() => {});
-        }
-      }
-      
-      if (isMatch && recoveredPassword) {
+      if (res.ok && res.password) {
         setRecoveryFailCount(0);
         setRecoveryLockUntil(0);
-        setPassword(recoveredPassword);
+        setPassword(res.password);
         setRecoveryModalVisible(false);
         toast.showToast(t('toastPasswordRestored'));
+      } else if (res.reason === 'none') {
+        toast.showToast(t('toastNoRecoveryFound'));
       } else {
         const nextFail = recoveryFailCount + 1;
         setRecoveryFailCount(nextFail);
@@ -221,11 +169,13 @@ export default function LockScreen({ password, setPassword, onLogin, onSync, onC
               </TouchableOpacity>
             )}
 
-            <TouchableOpacity style={styles.btnSecondary} onPress={onSync} activeOpacity={0.8} delayPressIn={0}>
-              <CustomText style={styles.btnSecondaryText}>
-                {t('lockLanSyncBtn') || 'YEREL AĞ İLE EŞİTLE'}
-              </CustomText>
-            </TouchableOpacity>
+            {!hasVault && (
+              <TouchableOpacity style={styles.btnSecondary} onPress={onSync} activeOpacity={0.7} delayPressIn={0}>
+                <CustomText style={styles.btnSecondaryText}>
+                  {t('lockLanSyncBtn')}
+                </CustomText>
+              </TouchableOpacity>
+            )}
           </View>
 
           {/* Erase / Forgot Password */}

@@ -13,6 +13,16 @@
  * ═══════════════════════════════════════════════════════════════════════════════
  */
 
+const ALLOWED_CARD_BRANDS = new Set([
+  'troy', 'visa', 'mastercard', 'amex', 'discover', 'jcb', 'maestro', 'unionpay', 'diners', 'generic'
+]);
+
+function sanitizeCardBrand(val) {
+  if (typeof val !== 'string') return '';
+  const cleaned = val.trim().toLowerCase();
+  return ALLOWED_CARD_BRANDS.has(cleaned) ? cleaned : '';
+}
+
 function parseTimestamp(val) {
   if (typeof val === 'number' && !isNaN(val)) return val;
   if (typeof val === 'string' && val.trim()) {
@@ -29,7 +39,11 @@ function normalizeEntry(entry) {
 
   const now = Date.now();
   const maxAllowedTs = now + 300000; // +5 min clock-skew ceiling (blocks future timestamp poisoning)
-  const id = entry.id || `${now}-${Math.random().toString(36).substring(2, 9)}`;
+  const id = (typeof entry.id === 'string' && entry.id.trim())
+    ? entry.id
+    : (entry.id !== undefined && entry.id !== null && String(entry.id).trim()
+      ? String(entry.id)
+      : `${now}-${Math.random().toString(36).substring(2, 9)}`);
 
   let rawUpdatedAt = parseTimestamp(entry.updatedAt) ??
                      parseTimestamp(entry.updated) ??
@@ -57,9 +71,14 @@ function normalizeEntry(entry) {
     }
   }
 
+  if (Object.prototype.hasOwnProperty.call(safeBase, 'cardBrand')) {
+    safeBase.cardBrand = sanitizeCardBrand(safeBase.cardBrand);
+  }
+
   const sanitized = {
     ...safeBase,
     id,
+    site: typeof entry.site === 'string' ? entry.site : '',
     updatedAt,
     updated: updatedAt,
     deletedAt,
@@ -83,10 +102,17 @@ function mergeHistories(winnerHistory, loserHistory, loserEntry) {
 
   function addSnapshot(snap) {
     if (!snap || typeof snap !== 'object') return;
-    const key = `${snap.updatedAt || snap.updated || 0}_${snap.type || 'login'}_${snap.site || ''}_${snap.username || ''}_${snap.password || ''}_${snap.cardNumber || ''}_${snap.secureNote || ''}_${snap.note || ''}_${snap.totp || ''}_${snap.deletedAt || (snap.isDeleted ? 'del' : 'act')}`;
+    const safeSite = typeof snap.site === 'string' ? snap.site : '';
+    const key = `${snap.updatedAt || snap.updated || 0}_${snap.type || 'login'}_${safeSite}_${snap.username || ''}_${snap.password || ''}_${snap.cardNumber || ''}_${snap.secureNote || ''}_${snap.note || ''}_${snap.totp || ''}_${snap.deletedAt || (snap.isDeleted ? 'del' : 'act')}`;
     if (!seen.has(key)) {
       seen.add(key);
       const { history: _ignored, ...cleanSnap } = snap;
+      if (Object.prototype.hasOwnProperty.call(cleanSnap, 'site')) {
+        cleanSnap.site = safeSite;
+      }
+      if (Object.prototype.hasOwnProperty.call(cleanSnap, 'cardBrand')) {
+        cleanSnap.cardBrand = sanitizeCardBrand(cleanSnap.cardBrand);
+      }
       combined.push(cleanSnap);
     }
   }
@@ -128,7 +154,7 @@ function areCoreFieldsEqual(a, b) {
 }
 
 function normalizeSite(s) {
-  return (s || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/+$/, '');
+  return (typeof s === 'string' ? s : '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/+$/, '');
 }
 
 function getCredentialKey(e) {

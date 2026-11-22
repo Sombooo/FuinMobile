@@ -108,39 +108,36 @@ class AutofillAuthActivity : AppCompatActivity() {
         }
     }
 
-    private fun getSupportedAuthenticators(): Int {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            BiometricManager.Authenticators.BIOMETRIC_STRONG or
-                BiometricManager.Authenticators.DEVICE_CREDENTIAL
-        } else {
-            BiometricManager.Authenticators.BIOMETRIC_WEAK or
-                BiometricManager.Authenticators.DEVICE_CREDENTIAL
-        }
-    }
-
     private fun tryBiometricOrOpenApp() {
         try {
             val biometricManager = BiometricManager.from(this)
-            val authenticators = getSupportedAuthenticators()
+            val authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG
             val canAuthenticate = biometricManager.canAuthenticate(authenticators)
+            val authCipher = if (canAuthenticate == BiometricManager.BIOMETRIC_SUCCESS) {
+                AutofillSecureStore.createBiometricAuthCipher()
+            } else {
+                null
+            }
 
-            if (canAuthenticate == BiometricManager.BIOMETRIC_SUCCESS) {
+            if (canAuthenticate == BiometricManager.BIOMETRIC_SUCCESS && authCipher != null) {
                 errorText.visibility = View.GONE
                 val isReprompt = pendingRepromptEntry != null
                 val promptBuilder = BiometricPrompt.PromptInfo.Builder()
                     .setTitle(if (isReprompt) "Hassas Kayıt Doğrulaması" else "Fuin Kasasını Doğrula")
                     .setSubtitle(
                         if (isReprompt) "Bu kayıt ek kimlik doğrulaması gerektiriyor"
-                        else "Şifreyi doldurmak için kimliğinizi doğrulayın"
+                        else "Şifreyi doldurmak için biyometrik kimliğinizi doğrulayın"
                     )
                     .setAllowedAuthenticators(authenticators)
+                    .setNegativeButtonText("İptal")
 
                 val pkg = targetPackageName?.trim().orEmpty()
-                if (pkg.isNotEmpty() && !AutofillStructureParser.isBrowserPackage(pkg)) {
+                if (pkg.isNotEmpty() && !AutofillDomainMatcher.isVerifiedBrowserPackage(this, pkg)) {
                     promptBuilder.setDescription("Hedef uygulama: $pkg")
                 }
 
                 val promptInfo = promptBuilder.build()
+                val cryptoObject = BiometricPrompt.CryptoObject(authCipher)
 
                 val biometricPrompt = BiometricPrompt(
                     this,
@@ -148,7 +145,11 @@ class AutofillAuthActivity : AppCompatActivity() {
                     object : BiometricPrompt.AuthenticationCallback() {
                         override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                             super.onAuthenticationSucceeded(result)
-                            handleAuthSuccess()
+                            if (AutofillSecureStore.verifyBiometricAuthCipher(result.cryptoObject?.cipher)) {
+                                handleAuthSuccess()
+                            } else {
+                                showUnlockInAppFallback("Biyometrik anahtar doğrulanamadı. Kasayı açmak için Fuin uygulamasını açın.")
+                            }
                         }
 
                         override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
@@ -160,22 +161,29 @@ class AutofillAuthActivity : AppCompatActivity() {
                     }
                 )
 
-                biometricPrompt.authenticate(promptInfo)
+                biometricPrompt.authenticate(promptInfo, cryptoObject)
             } else {
-                errorText.text = "Cihaz ekran kilidi veya biyometrik doğrulama bulunamadı. Kasayı açmak için Fuin uygulamasını açın."
-                errorText.visibility = View.VISIBLE
-                btnConfirm.visibility = View.VISIBLE
-                btnConfirm.text = "Fuin'i Aç"
-                btnConfirm.setOnClickListener {
-                    packageManager.getLaunchIntentForPackage(packageName)?.let { startActivity(it) }
-                    setResult(Activity.RESULT_CANCELED)
-                    finish()
+                val message = if (canAuthenticate == BiometricManager.BIOMETRIC_SUCCESS) {
+                    "Biyometrik kayıt değişikliği algılandı. Kasayı ana parolanızla açmak için Fuin uygulamasını açın."
+                } else {
+                    "Güçlü biyometrik doğrulama bulunamadı. Kasayı açmak için Fuin uygulamasını açın."
                 }
+                showUnlockInAppFallback(message)
             }
         } catch (_: Exception) {
-            errorText.text = "Doğrulama başlatılamadı. Lütfen tekrar deneyin."
-            errorText.visibility = View.VISIBLE
-            btnConfirm.visibility = View.VISIBLE
+            showUnlockInAppFallback("Doğrulama başlatılamadı. Kasayı açmak için Fuin uygulamasını açın.")
+        }
+    }
+
+    private fun showUnlockInAppFallback(message: String) {
+        errorText.text = message
+        errorText.visibility = View.VISIBLE
+        btnConfirm.visibility = View.VISIBLE
+        btnConfirm.text = "Fuin'i Aç"
+        btnConfirm.setOnClickListener {
+            packageManager.getLaunchIntentForPackage(packageName)?.let { startActivity(it) }
+            setResult(Activity.RESULT_CANCELED)
+            finish()
         }
     }
 

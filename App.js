@@ -13,14 +13,15 @@ import { saveVault, loadVault, clearVault, saveVaultBackup, getSyncState, setSyn
 import { ChunkAssembler, processSyncEnvelope } from './src/sync-v2-mobile';
 import { ThemeProvider, useTheme } from './src/theme';
 import * as SecureStore from 'expo-secure-store';
+import crypto from 'react-native-quick-crypto';
 import * as Font from 'expo-font';
 import * as LocalAuthentication from 'expo-local-authentication';
-import { Buffer } from '@craftzdog/react-native-buffer';
 import * as ScreenCapture from 'expo-screen-capture';
-import { clearIfExpired, copySecure } from './src/clipboardManager';
+import { clearIfExpired, copySecure, clearClipboardNow } from './src/clipboardManager';
 import useVaultLifecycle from './src/hooks/useVaultLifecycle';
 import useAutofillSync from './src/hooks/useAutofillSync';
 import { initSessionKey, clearSessionKey, isSessionActive, protectEntries, unprotectEntries } from './src/services/sessionSecurity';
+import { createAndStoreRecoveryKey, hasStoredRecoveryKey } from './src/services/recoveryService';
 import { autofillService } from './src/services/autofillService';
 
 import LockScreen from './src/screens/LockScreen';
@@ -66,6 +67,7 @@ function AppInner() {
   };
   const lockApp = () => {
     clearSessionKey();
+    clearClipboardNow().catch(() => {});
     totpScannerCallbacksRef.current = null;
     setTotpScannerVisible(false);
     setPassword('');
@@ -83,7 +85,10 @@ function AppInner() {
     setImportConfirmPassword('');
     setSyncFailCount(0);
     setSyncLockUntil(0);
-    changeModeSmooth('lock');
+    setMasterKeyData(null);
+    modeAnim.stopAnimation();
+    modeAnim.setValue(1);
+    setMode('lock');
   };
 
   const [permission, requestPermission] = useCameraPermissions();
@@ -158,6 +163,8 @@ function AppInner() {
   const [importConfirmPassword, setImportConfirmPassword] = useState('');
 
   const [masterKeyData, setMasterKeyData] = useState(null);
+  const [masterKeyModalSource, setMasterKeyModalSource] = useState('vault');
+  const [recoveryKeyVersion, setRecoveryKeyVersion] = useState(0);
   const lastSyncErrorToast = useRef(0);
 
   // Share Intent State
@@ -246,7 +253,7 @@ function AppInner() {
     const savedLockUntil = parseInt(await SecureStore.getItemAsync('fuin_lock_until') || '0', 10);
     if (Date.now() < savedLockUntil) {
       const remaining = Math.ceil((savedLockUntil - Date.now()) / 1000);
-      showAlert(t('alertError'), `${remaining}s beklemeniz gerekiyor.`);
+      showAlert(t('alertError'), t('lockWaitSeconds').replace('{seconds}', String(remaining)));
       return;
     }
 
@@ -380,6 +387,11 @@ function AppInner() {
   }, [lanPairingVersion, mode]);
 
   const handlePerformLanSync = async () => {
+    if (hasLocalVault && !vaultData) {
+      showAlert(t('alertError'), t('syncVaultLockedMsg'));
+      return;
+    }
+
     if (isLanSyncing.current) return;
     isLanSyncing.current = true;
 
@@ -387,22 +399,18 @@ function AppInner() {
       const { getPairingInfo } = require('./src/sync-lan-mobile');
       const existingPairing = await getPairingInfo();
       if (!existingPairing) {
+        isLanSyncing.current = false;
         showAlert(
-          t('alertWarning') || 'Dikkat',
-          t('noPairedDeviceWarn') || 'Henüz eşleşmiş bir cihaz bulunmuyor. Lütfen önce Ayarlar sekmesinden cihazınızı eşleştirin.'
+          t('alertWarning'),
+          t('noPairedDeviceWarn')
         );
         return;
       }
     } catch {}
 
-    if (hasLocalVault && !vaultData) {
-      showAlert(t('alertError') || 'Kasa Kilitli', t('syncVaultLockedMsg') || 'Senkronizasyon yapabilmek için lütfen önce kasanızın kilidini açın.');
-      return;
-    }
-
     try {
       setIsDecrypting(true);
-      toast.showToast(t('syncLanInProgress') || 'Wi-Fi üzerinden eşitleniyor...');
+      toast.showToast(t('syncLanInProgress'));
       const { performLanSync } = require('./src/sync-lan-mobile');
 
       let parsedVault = null;
@@ -443,18 +451,16 @@ function AppInner() {
     } catch (err) {
       setLanPairingVersion(v => v + 1);
 
-      const isRevoked = err.message && (
-        err.message.includes('kaldırılmış') || 
-        err.message.includes('401') || 
-        err.message.includes('Yetkisiz')
+      const isRevoked = Boolean(
+        err?.message && /401|yetkisiz|not paired|kald.?r/i.test(err.message)
       );
 
       if (isRevoked) {
         showAlert(
           t('syncErrorTitle'),
-          t('syncRevokedBody') || 'Masaüstü cihazında bu eşleşme kaldırılmış olduğu için telefonunuzdaki bağlantı da sıfırlandı. Lütfen Ayarlar sekmesinden tekrar eşleştirin.',
+          t('syncRevokedBody'),
           [{
-            text: t('btnOk') || 'Tamam',
+            text: t('btnOk'),
             onPress: () => {
               if (syncSourceMode === 'vault' && vaultData) changeModeSmooth('vault');
             }
@@ -463,10 +469,10 @@ function AppInner() {
       } else {
         showAlert(
           t('syncErrorTitle'),
-          t('syncUnreachableDetailed') || 'Masaüstü cihazına bağlanılamadı.\n\nLütfen kontrol edin:\n• Bilgisayarınızda Fuin açık ve ana ekrandaki "Eşitle" butonuna basılmış olmalı.\n• Telefon ve bilgisayarınız aynı Wi-Fi / yerel ağa bağlı olmalı.\n• Veya cihaz eşleşmesi bilgisayardan kaldırılmış olabilir.',
+          t('syncUnreachableDetailed'),
           [
             {
-              text: t('btnUnpairDevice') || 'Eşleşmeyi Kaldır',
+              text: t('btnUnpairDevice'),
               style: 'destructive',
               onPress: async () => {
                 const { clearPairingInfo } = require('./src/sync-lan-mobile');
@@ -477,7 +483,7 @@ function AppInner() {
               }
             },
             {
-              text: t('btnOk') || 'Tamam',
+              text: t('btnOk'),
               style: 'cancel',
               onPress: () => {
                 if (syncSourceMode === 'vault' && vaultData) changeModeSmooth('vault');
@@ -508,6 +514,10 @@ function AppInner() {
   };
 
   const startCameraSync = (intent = 'pair') => {
+    if (hasLocalVault && !vaultData) {
+      showAlert(t('alertError'), t('syncVaultLockedMsg'));
+      return;
+    }
     isBarcodeLocked.current = false;
     setSyncSourceMode(mode);
     setSyncIntent('pair');
@@ -524,6 +534,10 @@ function AppInner() {
   };
 
   const handleSyncButton = async () => {
+    if (hasLocalVault && !vaultData) {
+      showAlert(t('alertError'), t('syncVaultLockedMsg'));
+      return;
+    }
     try {
       const { getPairingInfo } = require('./src/sync-lan-mobile');
       const pairing = await getPairingInfo();
@@ -545,7 +559,83 @@ function AppInner() {
     startCameraSync('pair');
   };
 
+  const executeConfirmedQrPairing = async (pairing) => {
+    if (hasLocalVault && !vaultData) {
+      isBarcodeLocked.current = false;
+      showAlert(t('alertError'), t('syncVaultLockedMsg'));
+      return;
+    }
+    try {
+      const { savePairingInfo, sendPairRequest } = require('./src/sync-lan-mobile');
+      toast.showToast(t('pairingInProgress'));
+
+      let pairResult = null;
+      if (typeof sendPairRequest === 'function') {
+        pairResult = await sendPairRequest(pairing).catch(() => null);
+      }
+
+      if (!pairResult || !pairResult.success) {
+        showAlert(
+          t('syncErrorTitle'),
+          t('pairingFailedBody'),
+          [{
+            text: t('btnOk'),
+            onPress: () => {
+              isBarcodeLocked.current = false;
+            }
+          }]
+        );
+        return;
+      }
+
+      await savePairingInfo(pairing);
+      setLanPairingVersion(v => v + 1);
+
+      // If user has an active unlocked vault, switch away from scanner and perform two-way sync
+      if (vaultData) {
+        setSyncIntent('sync');
+        toast.showToast(t('syncLanInProgress'));
+        setMode('vault');
+        await handlePerformLanSync();
+        return;
+      }
+
+      showAlert(
+        t('pairingSuccessTitle'),
+        t('pairingSuccessBody').replace('{deviceId}', pairing.deviceId),
+        [
+          {
+            text: t('btnSyncWifiNow'),
+            style: 'primary',
+            onPress: () => {
+              setSyncIntent('sync');
+              setMode(vaultData ? 'vault' : 'lock');
+              handlePerformLanSync();
+            }
+          },
+          {
+            text: t('btnDone'),
+            style: 'cancel',
+            onPress: () => {
+              isBarcodeLocked.current = false;
+              setSyncIntent('sync');
+              setMode(vaultData ? 'vault' : 'lock');
+            }
+          }
+        ]
+      );
+    } catch (err) {
+      isBarcodeLocked.current = false;
+      console.warn('Pairing save error:', err);
+      showAlert(t('syncErrorTitle'), t('pairingFailedBody'));
+    }
+  };
+
   const handleBarcodeScanned = async ({ data }) => {
+    if (hasLocalVault && !vaultData) {
+      showAlert(t('alertError'), t('syncVaultLockedMsg'));
+      return;
+    }
     if (isDecrypting || syncPasswordPrompt || masterPasswordPrompt || isBarcodeLocked.current) return;
     if (typeof data !== 'string' || data.length > 8192) return;
     
@@ -567,7 +657,7 @@ function AppInner() {
             deviceId: (url.searchParams.get('id') || url.searchParams.get('deviceId') || '').slice(0, 128),
             pairKey: url.searchParams.get('key') || url.searchParams.get('pairKey'),
             port: parseInt(url.searchParams.get('port') || '8765', 10),
-            addresses: (url.searchParams.get('ips') || '').split(',').filter(Boolean).slice(0, 16)
+            addresses: (url.searchParams.get('ips') || '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 16)
           };
         }
       } catch (err) {
@@ -577,70 +667,63 @@ function AppInner() {
 
     if (pairing && pairing.pairKey && pairing.deviceId) {
       isBarcodeLocked.current = true;
-      try {
-        const { savePairingInfo, sendPairRequest } = require('./src/sync-lan-mobile');
-        toast.showToast(t('pairingInProgress') || 'Masaüstü cihaz ile eşleştiriliyor...');
+      const { isRFC1918OrLoopback } = require('./src/sync-lan-mobile');
+      const parsedPort = pairing.port !== undefined ? Number(pairing.port) : 8765;
+      const validIps = Array.isArray(pairing.addresses)
+        ? pairing.addresses
+            .map(ip => (typeof ip === 'string' ? ip.trim() : ''))
+            .filter(ip => isRFC1918OrLoopback(ip))
+            .slice(0, 16)
+        : [];
+      const hasValidKey = typeof pairing.pairKey === 'string' && /^[0-9a-fA-F]{64}$/.test(pairing.pairKey);
+      const hasValidPort = Number.isInteger(parsedPort) && parsedPort >= 1024 && parsedPort <= 65535;
 
-        let pairResult = null;
-        if (typeof sendPairRequest === 'function') {
-          pairResult = await sendPairRequest(pairing).catch(() => null);
-        }
-
-        if (!pairResult || !pairResult.success) {
-          showAlert(
-            t('syncErrorTitle') || 'Eşleştirme Hatası',
-            t('pairingFailedBody') || 'Masaüstü cihaz ile eşleşme kurulamadı.\n\nLütfen kontrol edin:\n• Telefon ve bilgisayarınız aynı Wi-Fi / yerel ağa bağlı olmalı.\n• Masaüstünde Fuin\'de "Cihaz Eşle" veya "Eşitle" açık olmalı.',
-            [{
-              text: t('btnOk') || 'Tamam',
-              onPress: () => {
-                isBarcodeLocked.current = false;
-              }
-            }]
-          );
-          return;
-        }
-
-        await savePairingInfo(pairing);
-        setLanPairingVersion(v => v + 1);
-
-        // If user has an active unlocked vault, switch away from scanner immediately and perform two-way sync
-        if (vaultData) {
-          setSyncIntent('sync');
-          toast.showToast(t('syncLanInProgress') || 'Cihaz eşleşti, veriler eşitleniyor...');
-          setMode('vault');
-          await handlePerformLanSync();
-          return;
-        }
-
+      if (!hasValidKey || !hasValidPort || validIps.length === 0) {
         showAlert(
-          t('pairingSuccessTitle'),
-          t('pairingSuccessBody').replace('{deviceId}', pairing.deviceId),
-          [
-            {
-              text: t('btnSyncWifiNow'),
-              style: 'primary',
-              onPress: () => {
-                setSyncIntent('sync');
-                setMode(vaultData ? 'vault' : 'lock');
-                handlePerformLanSync();
-              }
-            },
-            { 
-              text: t('btnDone'), 
-              style: 'cancel',
-              onPress: () => {
-                isBarcodeLocked.current = false;
-                setSyncIntent('sync');
-                setMode(vaultData ? 'vault' : 'lock');
-              } 
+          t('syncErrorTitle'),
+          t('pairingInvalidLanQr'),
+          [{
+            text: t('btnOk'),
+            onPress: () => {
+              isBarcodeLocked.current = false;
             }
-          ]
+          }]
         );
         return;
-      } catch (err) {
-        isBarcodeLocked.current = false;
-        console.warn('Pairing save error:', err);
       }
+
+      const sanitizedPairing = {
+        ...pairing,
+        deviceId: String(pairing.deviceId).trim().slice(0, 128),
+        port: parsedPort,
+        addresses: validIps,
+      };
+      const targetDisplay = `${validIps[0]}:${parsedPort}`;
+      const confirmBody = (vaultData ? t('pairingConfirmBody') : t('pairingConfirmSetupBody'))
+        .replace('{deviceId}', sanitizedPairing.deviceId)
+        .replace('{targetIp}', targetDisplay);
+
+      showAlert(
+        t('pairingConfirmTitle'),
+        confirmBody,
+        [
+          {
+            text: t('btnCancel'),
+            style: 'cancel',
+            onPress: () => {
+              isBarcodeLocked.current = false;
+            }
+          },
+          {
+            text: vaultData ? t('btnPairAndSync') : t('btnPairDesktop'),
+            style: 'primary',
+            onPress: () => {
+              executeConfirmedQrPairing(sanitizedPairing);
+            }
+          }
+        ]
+      );
+      return;
     }
 
     if (!data.startsWith('FUIN|2|')) {
@@ -697,12 +780,12 @@ function AppInner() {
       return;
     }
     if (pw.length < 10) {
-      showAlert(t('alertError'), t('syncPassMinLen') || 'Sync şifresi en az 10 karakter olmalıdır.');
+      showAlert(t('alertError'), t('syncPassMinLen'));
       return;
     }
     if (Date.now() < syncLockUntil) {
       const waitSec = Math.ceil((syncLockUntil - Date.now()) / 1000);
-      showAlert(t('alertError'), `${t('syncRetryDelayText') || 'Lütfen tekrar denemeden önce bekleyin:'} ${waitSec}s`);
+      showAlert(t('alertError'), `${t('syncRetryDelayText')} ${waitSec}s`);
       return;
     }
     if (!pendingV2Transfer) return;
@@ -719,7 +802,7 @@ function AppInner() {
       
       // Generation / Replay Validation
       if (payload.generation <= syncState.generation && syncState.generation !== 0) {
-        throw new Error('Bu senkronizasyon verisi eski veya daha önce kullanılmış');
+        throw new Error(t('syncReplayDetected'));
       }
 
       setSyncFailCount(0);
@@ -746,9 +829,11 @@ function AppInner() {
       if (isSilent) {
         throw e;
       }
-      const isAuthFailure = e.message && (
-        e.message.includes('Yanlış Sync Password') || 
-        e.message.includes('bozulmuş/tahrif')
+      const isAuthFailure = Boolean(
+        e?.message && (
+          e.message.includes('Sync Password') ||
+          e.message.includes('tahrif')
+        )
       );
 
       if (isAuthFailure) {
@@ -759,7 +844,7 @@ function AppInner() {
         const lockTime = Date.now() + (delaySec * 1000);
         setSyncLockUntil(lockTime);
 
-        showAlert(t('alertError'), `${e.message || t('alertDecryptFailed')}\n\n${t('syncRetryDelayPrefix') || 'Güvenlik gecikmesi:'} ${delaySec}s`, [
+        showAlert(t('alertError'), `${t('alertDecryptFailed')}\n\n${t('syncRetryDelayPrefix')} ${delaySec}s`, [
           { 
             text: t('btnOk'), 
             onPress: () => { 
@@ -839,6 +924,19 @@ function AppInner() {
       const localEncrypted = await encryptLocalVault(finalVaultJson, targetMasterPassword);
       await saveVault(localEncrypted);
       await saveVaultBackup(localEncrypted);
+
+      if (!hasLocalVault && targetMasterPassword) {
+        try {
+          if (!(await hasStoredRecoveryKey())) {
+            const rawMasterKey = await createAndStoreRecoveryKey(targetMasterPassword);
+            setMasterKeyModalSource('vault');
+            setMasterKeyData(rawMasterKey);
+            setRecoveryKeyVersion(v => v + 1);
+          }
+        } catch (recoveryErr) {
+          console.warn('[SYNC_IMPORT] RECOVERY_KEY_GEN_IGNORED', recoveryErr?.message || recoveryErr);
+        }
+      }
       
       await setSyncState({
         generation: payload.generation,
@@ -925,33 +1023,10 @@ function AppInner() {
       stage = 'METADATA';
       console.log('[VAULT_CREATE] METADATA_START');
       try {
-        const crypto = require('react-native-quick-crypto');
-        const { deriveLocalKey } = require('./src/crypto');
-        const keyBytes = crypto.randomBytes(16);
-        const rawMasterKey = Array.from(keyBytes)
-          .map(b => b.toString(16).padStart(2, '0').toUpperCase())
-          .join('')
-          .match(/.{4}/g)
-          .join('-');
-
-        const recoverySalt = crypto.randomBytes(32);
-        const recoveryKey = await deriveLocalKey(rawMasterKey, recoverySalt);
-
-        const iv = crypto.randomBytes(12);
-        const cipher = crypto.createCipheriv('aes-256-gcm', recoveryKey, iv);
-        const enc1 = cipher.update(Buffer.from(newPassword, 'utf8'));
-        const enc2 = cipher.final();
-        const tag = cipher.getAuthTag();
-        const encryptedPass = Buffer.concat([recoverySalt, iv, tag, enc1, enc2]).toString('base64');
-
-        try {
-          await SecureStore.setItemAsync('fuin-recovery-code-hash', crypto.createHash('sha256').update(rawMasterKey).digest('hex'));
-          await SecureStore.setItemAsync('fuin-recovery-data', encryptedPass);
-        } catch (secureStoreError) {
-          console.warn('[VAULT_CREATE] METADATA_SECURESTORE_IGNORED', secureStoreError?.message || secureStoreError);
-        }
-
+        const rawMasterKey = await createAndStoreRecoveryKey(newPassword);
+        setMasterKeyModalSource('vault');
         setMasterKeyData(rawMasterKey);
+        setRecoveryKeyVersion(v => v + 1);
       } catch (cryptoErr) {
         console.warn('[VAULT_CREATE] METADATA_RECOVERY_KEY_GEN_IGNORED', cryptoErr?.message || cryptoErr);
       }
@@ -977,6 +1052,133 @@ function AppInner() {
         message: errorMessage,
       });
       toast.showToast(`${t('toastVaultCreateFailed')} [${stage}: ${errorMessage}]`);
+    }
+  };
+
+  const handleRegenerateRecoveryKey = async () => {
+    if (!password) {
+      showAlert(t('alertError'), t('toastEnterPassword'));
+      return false;
+    }
+    try {
+      const rawMasterKey = await createAndStoreRecoveryKey(password);
+      setMasterKeyModalSource('settings');
+      setMasterKeyData(rawMasterKey);
+      setRecoveryKeyVersion(v => v + 1);
+      return true;
+    } catch {
+      showAlert(t('alertError'), t('recoveryGenerateFailed'));
+      return false;
+    }
+  };
+
+  const handleChangeMasterPassword = async (currentPw, newPw) => {
+    if (!password || !vaultData) {
+      return { ok: false, error: t('changePwFailed') };
+    }
+    if (typeof currentPw !== 'string' || !currentPw) {
+      return { ok: false, error: t('changePwWrongCurrent') };
+    }
+
+    // 1. Constant-time SHA-256 verification against active session password
+    let curHash = null;
+    let activeHash = null;
+    let matchesActive = false;
+    try {
+      curHash = crypto.createHash('sha256').update(currentPw, 'utf8').digest();
+      activeHash = crypto.createHash('sha256').update(password, 'utf8').digest();
+      matchesActive =
+        curHash.length === activeHash.length &&
+        crypto.timingSafeEqual(curHash, activeHash);
+    } finally {
+      try { if (curHash) curHash.fill(0); } catch {}
+      try { if (activeHash) activeHash.fill(0); } catch {}
+    }
+
+    if (!matchesActive) {
+      return { ok: false, error: t('changePwWrongCurrent') };
+    }
+
+    // 2. Validate new master password policy
+    if (typeof newPw !== 'string' || newPw.length < 8) {
+      return { ok: false, error: t('toastMin8Chars') };
+    }
+    if (newPw.length > 128) {
+      return { ok: false, error: t('changePwMax128Chars') };
+    }
+    if (newPw === currentPw) {
+      return { ok: false, error: t('changePwSameAsOld') };
+    }
+
+    try {
+      // 3. Defense-in-depth: verify on-disk vault decrypts with currentPw before mutating anything
+      const existingVaultEnc = await loadVault();
+      if (!existingVaultEnc) {
+        return { ok: false, error: t('toastVaultNotFound') };
+      }
+      try {
+        await decryptLocalVault(existingVaultEnc, currentPw);
+      } catch {
+        return { ok: false, error: t('changePwWrongCurrent') };
+      }
+
+      // 4. Save protective pre-change encrypted backup
+      await saveVaultBackup(existingVaultEnc);
+
+      // 5. Serialize unprotected entries + categories, re-encrypt under newPw, and persist
+      const parsed = typeof vaultData === 'string' ? JSON.parse(vaultData) : vaultData;
+      const cleanEntries = Array.isArray(parsed?.entries) ? unprotectEntries(parsed.entries) : [];
+      const categories = Array.isArray(parsed?.categories) ? parsed.categories : [];
+      const plainJson = JSON.stringify({
+        ...parsed,
+        type: parsed?.type || 'fuin/vault',
+        categories,
+        entries: cleanEntries,
+      });
+
+      const newEnc = await encryptLocalVault(plainJson, newPw);
+      await saveVault(newEnc, false);
+      await saveVaultBackup(newEnc);
+
+      // 6. Update active in-memory password state
+      setPassword(newPw);
+
+      // 7. Keep biometric Keystore secret synchronized when biometric unlock is enabled
+      let biometricReset = false;
+      try {
+        const bioEnabled = await SecureStore.getItemAsync('fuin-biometric-enabled');
+        if (bioEnabled === 'true') {
+          await SecureStore.setItemAsync('fuin-biometric-key', newPw, {
+            requireAuthentication: true,
+            authenticationPrompt: t('bioEnablePrompt'),
+          });
+        }
+      } catch {
+        biometricReset = true;
+        await SecureStore.setItemAsync('fuin-biometric-enabled', 'false').catch(() => {});
+        await SecureStore.deleteItemAsync('fuin-biometric-key').catch(() => {});
+      }
+
+      // 8. Rotate Recovery Key to stay 100% in sync with newPw and show recovery modal
+      try {
+        const newRecKey = await createAndStoreRecoveryKey(newPw);
+        setMasterKeyModalSource('settings');
+        setMasterKeyData(newRecKey);
+        setRecoveryKeyVersion(v => v + 1);
+      } catch (recoveryErr) {
+        console.warn('[CHANGE_MASTER_PW] RECOVERY_KEY_ROTATION_FAILED', recoveryErr?.message || recoveryErr);
+        await SecureStore.deleteItemAsync('fuin-recovery-code-hash').catch(() => {});
+        await SecureStore.deleteItemAsync('fuin-recovery-data').catch(() => {});
+        await SecureStore.deleteItemAsync('fuin-recovery-code').catch(() => {});
+        await SecureStore.deleteItemAsync('fuin-recovery-pass').catch(() => {});
+        setRecoveryKeyVersion(v => v + 1);
+        showAlert(t('alertWarning'), t('recoveryGenerateFailed'));
+      }
+
+      toast.showToast(biometricReset ? t('changePwBiometricResetNotice') : t('toastMasterPwChanged'));
+      return { ok: true, biometricReset };
+    } catch {
+      return { ok: false, error: t('changePwFailed') };
     }
   };
 
@@ -1007,7 +1209,7 @@ function AppInner() {
       setVaultData(memoryString);
       return true;
     } catch (e) {
-      showAlert(t('alertError'), t('alertSaveFailed') + ' (Hata)');
+      showAlert(t('alertError'), t('alertSaveFailed') + (e?.message || t('toastGenericError')));
       return false;
     }
   };
@@ -1023,7 +1225,7 @@ function AppInner() {
             onBarcodeScanned={onBarcodeScanned}
             barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
             onMountError={(e) => {
-              showAlert(t('alertError'), e?.message || 'Camera unavailable');
+              showAlert(t('alertError'), e?.message || t('cameraUnavailable'));
             }}
           />
           <View
@@ -1141,6 +1343,9 @@ function AppInner() {
         setSharedEntryData={setSharedEntryData}
         lanPairingVersion={lanPairingVersion}
         onPairingUpdated={() => setLanPairingVersion(v => v + 1)}
+        onRegenerateRecoveryKey={handleRegenerateRecoveryKey}
+        onChangeMasterPassword={handleChangeMasterPassword}
+        recoveryKeyVersion={recoveryKeyVersion}
       />
     );
   } else if (mode === 'success') {
@@ -1224,7 +1429,7 @@ function AppInner() {
               fontSize: 15,
               marginBottom: 20
             }}
-            placeholder={t('syncPasswordPh') || 'Sync Password'}
+            placeholder={t('syncPasswordPh')}
             placeholderTextColor={theme.muted}
             secureTextEntry
             value={syncPassword}
@@ -1272,8 +1477,8 @@ function AppInner() {
         {content}
       </Animated.View>
       {isSyncCameraActive && renderFullScreenQrScanner({
-        title: t('pairingScannerTitle') || 'CİHAZ EŞLEŞTİRME',
-        subtitle: t('pairingScannerSub') || 'Bilgisayarınızdaki eşleştirme QR kodunu okutun',
+        title: t('pairingScannerTitle'),
+        subtitle: t('pairingScannerSub'),
         onBarcodeScanned: handleBarcodeScanned,
         onCancel: handleCancelScanner
       })}
@@ -1290,7 +1495,7 @@ function AppInner() {
           <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center', zIndex: 9999 }]}>
             <View style={{ width: '85%', backgroundColor: theme.bg, borderWidth: 1, borderColor: theme.border, padding: 24, borderRadius: 4 }}>
               <CustomText style={{ fontSize: 18, color: theme.text, fontWeight: 'bold', marginBottom: 16, textAlign: 'center' }}>
-                {t('recoveryCreatedTitle')}
+                {masterKeyModalSource === 'settings' ? t('recoveryRegeneratedTitle') : t('recoveryCreatedTitle')}
               </CustomText>
               <CustomText style={{ fontSize: 13, color: theme.muted, lineHeight: 20, marginBottom: 20, textAlign: 'center' }}>
                 {t('recoveryCreatedBody')}

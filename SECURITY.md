@@ -15,13 +15,12 @@ Fuin Mobile is engineered around a strict **zero-knowledge, offline-first, peer-
 - **Auto-Expiring Clipboard:** Copied passwords and usernames are automatically cleared after 30–45 seconds using constant-time SHA-256 hash comparison so unrelated user clipboard data is not overwritten.
 - **Background Auto-Lock:** Automatically locks the vault and clears in-memory state when the app transitions to the background beyond the configured grace period.
 
-## 3. Hybrid P2P Synchronization Security
+## 3. Cross-Device P2P Synchronization Security
 - **Local LAN Sync (P2P):**
-  - Uses a 256-bit symmetric `pairKey` exchanged optically via QR code and authenticated with **XChaCha20-Poly1305**.
-  - Enforces strict **RFC1918 / Loopback** IP validation to prevent SSRF or external traffic leakage.
+  - Trust is established once via an optical QR code pairing exchange displaying a 256-bit CSPRNG `pairKey` on Desktop (`QR` is used strictly for pairing, never for cloud relays).
+  - Active sync transfers **XChaCha20-Poly1305** encrypted diffs directly over your private local Wi-Fi / Hotspot network (`RFC1918` canonical IPv4 validation, no HTTP redirects).
   - Verifies directional markers (`direction === 'response'`), `requestNonce` cryptographic binding, 120-second timestamp freshness, and response nonce uniqueness to defeat LAN reflection and replay attacks.
-- **Air-Gap QR Sync (V2):**
-  - Verifies CRC-32 frame checksums, Base45 encoding, XChaCha20-Poly1305 authentication tags, and strictly increasing `generation` counters to prevent rollback attacks.
+- **V2 Payload Container Integrity:** Internal CBOR/Zstandard payload helpers enforce CRC-32 frame checksums, XChaCha20-Poly1305 authentication tags, and monotonic `generation` counters.
 
 ## Responsible Disclosure
 If you discover a security vulnerability, please open a confidential security advisory on GitHub or contact the maintainers before public disclosure.

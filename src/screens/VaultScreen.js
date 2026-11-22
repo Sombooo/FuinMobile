@@ -1,7 +1,7 @@
 import CustomTextInput from '../components/CustomTextInput';
 import CustomText from '../components/CustomText';
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import { StyleSheet, Text, View, FlatList, TouchableOpacity, SafeAreaView, StatusBar, Alert, Platform, ScrollView, TextInput, Switch, Modal, LayoutAnimation, Animated, UIManager } from 'react-native';
+import { StyleSheet, Text, View, FlatList, TouchableOpacity, SafeAreaView, StatusBar, Alert, Platform, ScrollView, TextInput, Switch, Modal, KeyboardAvoidingView, LayoutAnimation, Animated, UIManager } from 'react-native';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -34,6 +34,7 @@ import VaultCardItem from '../components/VaultCardItem';
 import useVaultSearch from '../hooks/useVaultSearch';
 import useAppUpdater from '../hooks/useAppUpdater';
 import { memDecrypt, unprotectEntries } from '../services/sessionSecurity';
+import { hasStoredRecoveryKey } from '../services/recoveryService';
 import { autofillService } from '../services/autofillService';
 
 TotpEngine.setCryptoProvider(quickCrypto, RNBuffer);
@@ -89,7 +90,10 @@ export default function VaultScreen({
   sharedEntryData, 
   setSharedEntryData,
   lanPairingVersion,
-  onPairingUpdated
+  onPairingUpdated,
+  onRegenerateRecoveryKey,
+  onChangeMasterPassword,
+  recoveryKeyVersion
 }) {
   const { t, lang, setLang } = useI18n();
   const { showAlert } = useAlert();
@@ -163,12 +167,155 @@ export default function VaultScreen({
   // Show password state
   const [visiblePasswords, setVisiblePasswords] = useState({});
   const [biometricEnabled, setBiometricEnabled] = useState(false);
+  const [bgTimeout, setBgTimeout] = useState('60000');
+  const [showCryptoDetails, setShowCryptoDetails] = useState(false);
+
+  // Change Master Password Modal State
+  const [changePwModalVisible, setChangePwModalVisible] = useState(false);
+  const [curMasterPw, setCurMasterPw] = useState('');
+  const [newMasterPw, setNewMasterPw] = useState('');
+  const [confirmMasterPw, setConfirmMasterPw] = useState('');
+  const [showCurMasterPw, setShowCurMasterPw] = useState(false);
+  const [showNewMasterPw, setShowNewMasterPw] = useState(false);
+  const [showConfirmMasterPw, setShowConfirmMasterPw] = useState(false);
+  const [changePwError, setChangePwError] = useState('');
+  const [changePwBusy, setChangePwBusy] = useState(false);
+
+  // Master Password Reprompt Modal State (fallback when biometrics are unavailable/unenrolled)
+  const [repromptModalVisible, setRepromptModalVisible] = useState(false);
+  const [repromptPwInput, setRepromptPwInput] = useState('');
+  const [showRepromptPw, setShowRepromptPw] = useState(false);
+  const [repromptError, setRepromptError] = useState('');
+  const repromptResolverRef = useRef(null);
 
   // Sync & Pairing State
   const [syncMode, setSyncMode] = useState('lan');
   const [pairingInfo, setPairingInfo] = useState(null);
   const [autofillEnabled, setAutofillEnabled] = useState(false);
   const [autofillSupported, setAutofillSupported] = useState(false);
+  const [hasRecoveryKey, setHasRecoveryKey] = useState(false);
+  const [recoveryKeyBusy, setRecoveryKeyBusy] = useState(false);
+
+  const resetChangePwForm = useCallback(() => {
+    setCurMasterPw('');
+    setNewMasterPw('');
+    setConfirmMasterPw('');
+    setShowCurMasterPw(false);
+    setShowNewMasterPw(false);
+    setShowConfirmMasterPw(false);
+    setChangePwError('');
+  }, []);
+
+  const openChangePwModal = useCallback(() => {
+    resetChangePwForm();
+    setChangePwModalVisible(true);
+  }, [resetChangePwForm]);
+
+  const closeChangePwModal = useCallback(() => {
+    if (changePwBusy) return;
+    setChangePwModalVisible(false);
+    resetChangePwForm();
+  }, [changePwBusy, resetChangePwForm]);
+
+  const handleSubmitChangePw = useCallback(async () => {
+    if (changePwBusy || !onChangeMasterPassword) return;
+    setChangePwError('');
+
+    if (!curMasterPw) {
+      setChangePwError(t('changePwWrongCurrent'));
+      return;
+    }
+    if (!newMasterPw || newMasterPw.length < 8) {
+      setChangePwError(t('toastMin8Chars'));
+      return;
+    }
+    if (newMasterPw.length > 128) {
+      setChangePwError(t('changePwMax128Chars'));
+      return;
+    }
+    if (newMasterPw !== confirmMasterPw) {
+      setChangePwError(t('changePwMismatch'));
+      return;
+    }
+    if (newMasterPw === curMasterPw) {
+      setChangePwError(t('changePwSameAsOld'));
+      return;
+    }
+
+    setChangePwBusy(true);
+    try {
+      const res = await onChangeMasterPassword(curMasterPw, newMasterPw);
+      if (res && res.ok) {
+        setChangePwModalVisible(false);
+        resetChangePwForm();
+        SecureStore.getItemAsync('fuin-biometric-enabled')
+          .then((val) => setBiometricEnabled(val === 'true'))
+          .catch(() => {});
+      } else {
+        setChangePwError((res && res.error) || t('changePwFailed'));
+      }
+    } catch {
+      setChangePwError(t('changePwFailed'));
+    } finally {
+      setChangePwBusy(false);
+    }
+  }, [
+    changePwBusy,
+    onChangeMasterPassword,
+    curMasterPw,
+    newMasterPw,
+    confirmMasterPw,
+    resetChangePwForm,
+    t,
+  ]);
+
+  const handleOpenBackupHistory = useCallback(async () => {
+    const blist = await getVaultBackups();
+    setBackups(blist);
+    setBackupModalVisible(true);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    if (activeTab === 'settings') {
+      hasStoredRecoveryKey()
+        .then((exists) => {
+          if (active) setHasRecoveryKey(Boolean(exists));
+        })
+        .catch(() => {
+          if (active) setHasRecoveryKey(false);
+        });
+    }
+    return () => {
+      active = false;
+    };
+  }, [activeTab, recoveryKeyVersion]);
+
+  const handleRegenerateRecoveryKeyPress = useCallback(() => {
+    if (recoveryKeyBusy || !onRegenerateRecoveryKey) return;
+    showAlert(
+      t('recoveryKeyCardTitle'),
+      hasRecoveryKey ? t('recoveryKeyRegenerateConfirm') : t('recoveryKeyCreateConfirm'),
+      [
+        { text: t('btnCancel'), style: 'cancel' },
+        {
+          text: hasRecoveryKey ? t('recoveryKeyRegenerateAction') : t('recoveryKeyCreateAction'),
+          style: 'primary',
+          onPress: async () => {
+            setRecoveryKeyBusy(true);
+            try {
+              const ok = await onRegenerateRecoveryKey();
+              if (ok) {
+                setHasRecoveryKey(true);
+              }
+            } finally {
+              setRecoveryKeyBusy(false);
+            }
+          },
+        },
+      ]
+    );
+  }, [recoveryKeyBusy, onRegenerateRecoveryKey, hasRecoveryKey, showAlert, t]);
 
   useEffect(() => {
     const checkAutofill = async () => {
@@ -265,8 +412,11 @@ export default function VaultScreen({
   useEffect(() => {
     SecureStore.getItemAsync('fuin-biometric-enabled').then(val => {
       setBiometricEnabled(val === 'true');
-    });
-  }, []);
+    }).catch(() => {});
+    SecureStore.getItemAsync('fuin-bg-timeout').then(val => {
+      if (val) setBgTimeout(val);
+    }).catch(() => {});
+  }, [activeTab]);
 
   useEffect(() => {
     if (sharedEntryData) {
@@ -295,6 +445,10 @@ export default function VaultScreen({
       setTotpSecret(null);
       setEncBackupRaw(null);
       setEncBackupPw('');
+      setCurMasterPw('');
+      setNewMasterPw('');
+      setConfirmMasterPw('');
+      setChangePwError('');
     };
   }, []);
 
@@ -356,6 +510,80 @@ export default function VaultScreen({
   };
 
 
+  const verifySessionMasterPassword = useCallback((candidate) => {
+    if (typeof candidate !== 'string' || !candidate || typeof password !== 'string' || !password) {
+      return false;
+    }
+    let candHash = null;
+    let activeHash = null;
+    try {
+      candHash = quickCrypto.createHash('sha256').update(candidate, 'utf8').digest();
+      activeHash = quickCrypto.createHash('sha256').update(password, 'utf8').digest();
+      return (
+        candHash.length === activeHash.length &&
+        quickCrypto.timingSafeEqual(candHash, activeHash)
+      );
+    } catch {
+      return false;
+    } finally {
+      try { if (candHash) candHash.fill(0); } catch {}
+      try { if (activeHash) activeHash.fill(0); } catch {}
+    }
+  }, [password]);
+
+  const closeRepromptModal = useCallback((verified = false) => {
+    setRepromptModalVisible(false);
+    setRepromptPwInput('');
+    setShowRepromptPw(false);
+    setRepromptError('');
+    const resolver = repromptResolverRef.current;
+    repromptResolverRef.current = null;
+    if (typeof resolver === 'function') {
+      resolver(Boolean(verified));
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (typeof repromptResolverRef.current === 'function') {
+        const resolver = repromptResolverRef.current;
+        repromptResolverRef.current = null;
+        resolver(false);
+      }
+    };
+  }, []);
+
+  const requestMasterPasswordReprompt = useCallback(() => {
+    if (typeof password !== 'string' || !password) {
+      return Promise.resolve(false);
+    }
+    if (typeof repromptResolverRef.current === 'function') {
+      const prevResolver = repromptResolverRef.current;
+      repromptResolverRef.current = null;
+      prevResolver(false);
+    }
+    setRepromptPwInput('');
+    setShowRepromptPw(false);
+    setRepromptError('');
+    setRepromptModalVisible(true);
+    return new Promise((resolve) => {
+      repromptResolverRef.current = resolve;
+    });
+  }, [password]);
+
+  const handleSubmitRepromptPw = useCallback(() => {
+    if (!repromptPwInput) {
+      setRepromptError(t('toastEnterPassword'));
+      return;
+    }
+    if (verifySessionMasterPassword(repromptPwInput)) {
+      closeRepromptModal(true);
+    } else {
+      setRepromptPwInput('');
+      setRepromptError(t('repromptWrongPassword'));
+    }
+  }, [repromptPwInput, verifySessionMasterPassword, closeRepromptModal, t]);
+
   const verifyReprompt = useCallback(async (entry) => {
     if (!entry || !entry.reprompt) return true;
     try {
@@ -363,16 +591,16 @@ export default function VaultScreen({
       const isEnrolled = await LocalAuthentication.isEnrolledAsync();
       if (hasHw && isEnrolled) {
         const res = await LocalAuthentication.authenticateAsync({
-          promptMessage: t('repromptBioPrompt') || 'Korumalı kayda erişmek için kimliğinizi doğrulayın'
+          promptMessage: t('repromptBioPrompt')
         });
-        return res.success;
+        return Boolean(res && res.success);
       }
-      return true;
+      return await requestMasterPasswordReprompt();
     } catch (err) {
       console.error('Reprompt auth error:', err);
       return false;
     }
-  }, [t]);
+  }, [t, requestMasterPasswordReprompt]);
 
   const handleCopy = useCallback(async (val, label, entry, customDuration) => {
     const isSecret = label === t('fieldPassword') ||
@@ -550,13 +778,13 @@ export default function VaultScreen({
         }
       }
     } catch (e) {
-      showAlert(t('alertError'), failPrefix + (e?.message || 'Hata'));
+      showAlert(t('alertError'), failPrefix + (e?.message || t('toastGenericError')));
     }
   }, [showAlert, t]);
 
   const readPickedFileText = useCallback(async (asset) => {
     const uri = asset?.uri;
-    if (!uri) throw new Error('Dosya okunamadı');
+    if (!uri) throw new Error(t('ioFileReadError'));
     try {
       const info = await FileSystem.getInfoAsync(uri);
       const byteSize = asset?.size || info?.size || 0;
@@ -585,7 +813,7 @@ export default function VaultScreen({
 
       // Reject non-web URI schemes (javascript:, intent:, file:, content:, fuin:, androidapp:)
       if (/^[a-z][a-z0-9+.-]*:/i.test(urlToOpen) && !/^https?:\/\//i.test(urlToOpen)) {
-        showAlert(t('alertError'), t('toastGenericError') + ' (Geçersiz URL)');
+        showAlert(t('alertError'), t('invalidUrlError'));
         return;
       }
 
@@ -595,7 +823,7 @@ export default function VaultScreen({
 
       const parsed = new URL(urlToOpen);
       if ((parsed.protocol !== 'https:' && parsed.protocol !== 'http:') || !parsed.hostname) {
-        showAlert(t('alertError'), t('toastGenericError') + ' (Geçersiz URL)');
+        showAlert(t('alertError'), t('invalidUrlError'));
         return;
       }
 
@@ -603,11 +831,11 @@ export default function VaultScreen({
       if (supported) {
         await Linking.openURL(parsed.href);
       } else {
-        showAlert(t('alertError'), t('toastGenericError') + ' (Geçersiz URL)');
+        showAlert(t('alertError'), t('invalidUrlError'));
       }
     } catch (error) {
-      console.error("URL açılırken hata:", error);
-      showAlert(t('alertError'), t('toastGenericError') + ' (Geçersiz URL)');
+      console.error('URL open error:', error);
+      showAlert(t('alertError'), t('invalidUrlError'));
     }
   }, [t, showAlert]);
 
@@ -700,13 +928,13 @@ export default function VaultScreen({
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
                   <View style={{ flex: 1 }}>
                     <CustomText style={{ color: theme.text, fontSize: 13, fontWeight: 'bold' }}>
-                      {(t('updateBannerTitle') || 'Yeni sürüm mevcut: v{version}').replace('{version}', updater.updateInfo.version)}
+                      {t('updateBannerTitle').replace('{version}', updater.updateInfo.version)}
                     </CustomText>
                     {(updater.downloading || updater.verifying) ? (
                       <CustomText style={{ color: theme.muted, fontSize: 11, marginTop: 2 }}>
                         {updater.verifying
                           ? t('updateVerifying')
-                          : (t('updateDownloading') || 'İndiriliyor... %{percent}').replace('{percent}', String(updater.progress.percent))}
+                          : t('updateDownloading').replace('{percent}', String(updater.progress.percent))}
                       </CustomText>
                     ) : null}
                   </View>
@@ -905,7 +1133,7 @@ export default function VaultScreen({
                     failPrefix: t('ioExportEncFailed'),
                   });
                 } catch (e) {
-                  showAlert(t('alertError'), t('ioExportEncFailed') + (e?.message || 'Hata'));
+                  showAlert(t('alertError'), t('ioExportEncFailed') + (e?.message || t('toastGenericError')));
                 }
               }}>
                 <Feather name="shield" size={20} color={theme.accent} style={{ marginBottom: 6 }} />
@@ -955,11 +1183,7 @@ export default function VaultScreen({
               <CustomText style={{color: theme.muted, fontSize: 12, marginTop: 4}}>{t('healthReportCardSub')}</CustomText>
             </TouchableOpacity>
             
-            <TouchableOpacity style={[styles.settingsCard, { marginTop: 10 }]} onPress={async () => {
-              const blist = await getVaultBackups();
-              setBackups(blist);
-              setBackupModalVisible(true);
-            }}>
+            <TouchableOpacity style={[styles.settingsCard, { marginTop: 10 }]} activeOpacity={0.7} delayPressIn={0} onPress={handleOpenBackupHistory}>
               <View style={{flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2}}>
                 <Feather name="database" size={16} color={theme.accent} />
                 <CustomText style={{color: theme.text, fontSize: 14, fontWeight: 'bold'}}>{t('backupsCardTitle')}</CustomText>
@@ -973,167 +1197,441 @@ export default function VaultScreen({
 
         {activeTab === 'settings' && (
           <ScrollView style={styles.settingsWrap} keyboardShouldPersistTaps="handled">
+            {/* ── GROUP 1: VAULT & SECURITY ── */}
+            <CustomText style={[styles.settingsGroupHeader, { marginTop: 4 }]}>
+              {t('settingsGroupVaultSecurity')}
+            </CustomText>
 
+            {/* Biometric & Background Auto-Lock Card */}
+            <View style={[styles.settingsCard, styles.settingsGroupCard]}>
+              <CustomText style={[styles.settingsCardKicker, { marginBottom: 8 }]}>
+                {t('bioSectionTitle')}
+              </CustomText>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+                <View style={{ flex: 1 }}>
+                  <CustomText style={{ color: theme.text, fontSize: 14, fontWeight: 'bold' }}>
+                    {t('bioFingerprintFaceId')}
+                  </CustomText>
+                  <CustomText style={{ color: theme.muted, fontSize: 12, marginTop: 4, lineHeight: 16 }}>
+                    {t('bioNoPasswordSub')}
+                  </CustomText>
+                </View>
+                <Switch
+                  value={biometricEnabled}
+                  onValueChange={toggleBiometric}
+                  trackColor={{ false: theme.border, true: theme.accent }}
+                  thumbColor={theme.bg}
+                />
+              </View>
 
-            <CustomText style={[styles.settingsTitle, {fontSize: 14, color: theme.muted, marginTop: 10}]}>{t('themeTitle')}</CustomText>
-            <View style={{flexDirection: 'row', gap: 10, marginBottom: 20}}>
-              {['dark', 'light', 'system'].map(m => (
-                <TouchableOpacity key={m} style={[styles.settingsCard, { flex: 1, alignItems: 'center', borderColor: themeMode === m ? theme.accent : theme.border }]} onPress={() => changeTheme(m)}>
-                  <CustomText style={{color: themeMode === m ? theme.accent : theme.text, fontSize: 12, fontWeight: 'bold', textTransform: 'uppercase'}}>{m === 'system' ? t('themeSystem') : m === 'dark' ? t('themeDark') : t('themeLight')}</CustomText>
-                </TouchableOpacity>
-              ))}
+              <View style={styles.settingsDivider} />
+
+              <CustomText style={[styles.settingsCardKicker, { marginBottom: 12 }]}>
+                {t('autoLockTitle')}
+              </CustomText>
+              <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                {[
+                  { label: t('time1m'), value: '60000' },
+                  { label: t('time2m'), value: '120000' },
+                  { label: t('time5m'), value: '300000' },
+                  { label: t('time15m'), value: '900000' }
+                ].map(opt => {
+                  const isActive = bgTimeout === opt.value;
+                  return (
+                    <TouchableOpacity
+                      key={opt.value}
+                      activeOpacity={0.7}
+                      delayPressIn={0}
+                      style={[
+                        styles.settingsPillBtn,
+                        isActive && {
+                          borderColor: theme.accent,
+                          backgroundColor: isLight ? 'rgba(61,107,79,0.12)' : 'rgba(90,154,110,0.14)',
+                        },
+                      ]}
+                      onPress={async () => {
+                        await SecureStore.setItemAsync('fuin-bg-timeout', opt.value);
+                        setBgTimeout(opt.value);
+                        autofillService.syncVault(unprotectEntries(entries), parseInt(opt.value, 10)).catch(() => {});
+                        showAlert(t('alertSaved'), t('autoLockSavedMsg').replace('{label}', opt.label));
+                      }}
+                    >
+                      <CustomText style={{ color: isActive ? theme.accent : theme.text, fontSize: 12, fontWeight: 'bold' }}>
+                        {opt.label}
+                      </CustomText>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
             </View>
 
-            <CustomText style={[styles.settingsTitle, {fontSize: 14, color: theme.muted, marginTop: 10}]}>{t('langTitle')}</CustomText>
-            <View style={{flexDirection: 'row', gap: 10, marginBottom: 20}}>
-              {['tr', 'en'].map(l => (
-                <TouchableOpacity key={l} style={[styles.settingsCard, { flex: 1, alignItems: 'center', borderColor: lang === l ? theme.accent : theme.border }]} onPress={() => setLang(l)}>
-                  <CustomText style={{color: lang === l ? theme.accent : theme.text, fontSize: 12, fontWeight: 'bold', textTransform: 'uppercase'}}>{l === 'tr' ? 'TR' : 'EN'}</CustomText>
-                </TouchableOpacity>
-              ))}
+            {/* Change Master Password Card */}
+            <View style={[styles.settingsCard, styles.settingsGroupCard]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                <Feather name="lock" size={16} color={theme.accent} />
+                <CustomText style={{ color: theme.text, fontSize: 14, fontWeight: 'bold' }}>
+                  {t('settingChangePwTitle')}
+                </CustomText>
+              </View>
+              <CustomText style={{ color: theme.muted, fontSize: 12, lineHeight: 18, marginBottom: 12 }}>
+                {t('settingChangePwSub')}
+              </CustomText>
+              <TouchableOpacity
+                activeOpacity={0.7}
+                delayPressIn={0}
+                disabled={!onChangeMasterPassword}
+                style={[
+                  styles.settingsSecondaryBtn,
+                  !onChangeMasterPassword && { opacity: 0.6 },
+                ]}
+                onPress={openChangePwModal}
+              >
+                <Feather name="edit-3" size={14} color={theme.accent} />
+                <CustomText style={{ color: theme.accent, fontSize: 12, fontWeight: 'bold' }}>
+                  {t('btnChangeMasterPw')}
+                </CustomText>
+              </TouchableOpacity>
             </View>
 
-            {/* Eşitleme & Cihazlar Bölümü */}
-            <CustomText style={[styles.settingsTitle, {fontSize: 14, color: theme.muted, marginTop: 10}]}>{t('settingSyncDevicesTitle')}</CustomText>
-            
-            {/* Eşleşmiş Masaüstü Kartı */}
+            {/* Recovery Key Card */}
+            <View style={[styles.settingsCard, styles.settingsGroupCard]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, gap: 8 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                  <Feather name="key" size={16} color={theme.accent} />
+                  <CustomText style={styles.settingsCardKicker}>
+                    {t('recoveryKeySectionTitle')}
+                  </CustomText>
+                </View>
+                <View style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  backgroundColor: hasRecoveryKey
+                    ? (isLight ? 'rgba(61,107,79,0.15)' : 'rgba(90,154,110,0.2)')
+                    : (isLight ? 'rgba(176,112,32,0.12)' : 'rgba(212,152,42,0.16)'),
+                  paddingVertical: 4,
+                  paddingHorizontal: 8,
+                  borderRadius: 12,
+                }}>
+                  <View style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: 3,
+                    backgroundColor: hasRecoveryKey ? theme.green : theme.amber,
+                    marginRight: 6,
+                  }} />
+                  <CustomText style={{
+                    color: hasRecoveryKey ? theme.green : theme.amber,
+                    fontSize: 11,
+                    fontWeight: '600',
+                  }}>
+                    {hasRecoveryKey ? t('recoveryKeyStatusActive') : t('recoveryKeyStatusMissing')}
+                  </CustomText>
+                </View>
+              </View>
+              <CustomText style={{ color: theme.muted, fontSize: 12, lineHeight: 18, marginBottom: 12 }}>
+                {t('recoveryKeyCardDesc')}
+              </CustomText>
+              <TouchableOpacity
+                activeOpacity={0.7}
+                delayPressIn={0}
+                disabled={recoveryKeyBusy || !onRegenerateRecoveryKey}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                  backgroundColor: hasRecoveryKey ? theme.paper : theme.accent,
+                  borderWidth: 1,
+                  borderColor: hasRecoveryKey ? theme.border : theme.accent,
+                  paddingVertical: 10,
+                  paddingHorizontal: 16,
+                  borderRadius: 6,
+                  opacity: (recoveryKeyBusy || !onRegenerateRecoveryKey) ? 0.6 : 1,
+                }}
+                onPress={handleRegenerateRecoveryKeyPress}
+              >
+                <Feather
+                  name={hasRecoveryKey ? 'refresh-cw' : 'key'}
+                  size={14}
+                  color={hasRecoveryKey ? theme.accent : theme.bg}
+                />
+                <CustomText style={{
+                  color: hasRecoveryKey ? theme.accent : theme.bg,
+                  fontSize: 12,
+                  fontWeight: 'bold',
+                }}>
+                  {recoveryKeyBusy
+                    ? '...'
+                    : (hasRecoveryKey ? t('recoveryKeyBtnRegenerate') : t('recoveryKeyBtnCreate'))}
+                </CustomText>
+              </TouchableOpacity>
+            </View>
+
+            {/* Android Autofill Card */}
+            {autofillSupported && (
+              <View style={[styles.settingsCard, styles.settingsGroupCard]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, gap: 8 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                    <Feather name="zap" size={16} color={theme.accent} />
+                    <CustomText style={styles.settingsCardKicker} numberOfLines={1}>
+                      {t('autofillTitle')}
+                    </CustomText>
+                  </View>
+                  <View style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    backgroundColor: autofillEnabled
+                      ? (isLight ? 'rgba(61,107,79,0.15)' : 'rgba(90,154,110,0.2)')
+                      : (isLight ? 'rgba(160,52,42,0.08)' : 'rgba(212,90,74,0.12)'),
+                    paddingVertical: 4,
+                    paddingHorizontal: 8,
+                    borderRadius: 12,
+                  }}>
+                    <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: autofillEnabled ? theme.green : theme.red, marginRight: 6 }} />
+                    <CustomText style={{ color: autofillEnabled ? theme.green : theme.red, fontSize: 11, fontWeight: '600' }}>
+                      {autofillEnabled ? t('autofillStatusActive') : t('autofillStatusInactive')}
+                    </CustomText>
+                  </View>
+                </View>
+                <CustomText style={{ color: theme.muted, fontSize: 12, lineHeight: 18, marginBottom: 12 }}>
+                  {t('autofillDesc')}
+                </CustomText>
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  delayPressIn={0}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    backgroundColor: autofillEnabled ? theme.paper : theme.accent,
+                    borderWidth: 1,
+                    borderColor: autofillEnabled ? theme.border : theme.accent,
+                    paddingVertical: 10,
+                    paddingHorizontal: 16,
+                    borderRadius: 6,
+                  }}
+                  onPress={async () => {
+                    await autofillService.openSettings();
+                    setTimeout(async () => {
+                      const en = await autofillService.isEnabled();
+                      setAutofillEnabled(en);
+                    }, 1000);
+                  }}
+                >
+                  <Feather name="external-link" size={14} color={autofillEnabled ? theme.accent : theme.bg} />
+                  <CustomText style={{ color: autofillEnabled ? theme.accent : theme.bg, fontSize: 12, fontWeight: 'bold' }}>
+                    {autofillEnabled ? t('autofillBtnSettings') : t('autofillBtnEnable')}
+                  </CustomText>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* ── GROUP 2: SYNC & BACKUPS ── */}
+            <CustomText style={styles.settingsGroupHeader}>
+              {t('settingsGroupSyncBackups')}
+            </CustomText>
+
+            {/* LAN Sync & Paired Desktop Card */}
             {pairingInfo ? (
-              <View style={[styles.settingsCard, { marginBottom: 20 }]}>
-                <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8}}>
-                  <View style={{flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1}}>
-                    <Feather name="monitor" size={18} color={theme.text} />
-                    <CustomText numberOfLines={1} style={{color: theme.text, fontSize: 13, fontWeight: 'bold', flex: 1}}>
+              <View style={[styles.settingsCard, styles.settingsGroupCard]}>
+                <CustomText style={[styles.settingsCardKicker, { marginBottom: 8 }]}>
+                  {t('settingSyncDevicesTitle')}
+                </CustomText>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, gap: 8 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                    <Feather name="monitor" size={16} color={theme.text} />
+                    <CustomText numberOfLines={1} style={{ color: theme.text, fontSize: 13, fontWeight: 'bold', flex: 1 }}>
                       {pairingInfo.deviceId || t('desktopDeviceDefault')}
                     </CustomText>
                   </View>
-                  <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: isLight ? 'rgba(61,107,79,0.15)' : 'rgba(90,154,110,0.2)', paddingVertical: 3, paddingHorizontal: 8, borderRadius: 12}}>
-                    <View style={{width: 6, height: 6, borderRadius: 3, backgroundColor: theme.green, marginRight: 5}} />
-                    <CustomText style={{color: theme.green, fontSize: 11, fontWeight: '600'}}>{t('deviceStatusReady')}</CustomText>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: isLight ? 'rgba(61,107,79,0.15)' : 'rgba(90,154,110,0.2)', paddingVertical: 4, paddingHorizontal: 8, borderRadius: 12 }}>
+                    <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: theme.green, marginRight: 6 }} />
+                    <CustomText style={{ color: theme.green, fontSize: 11, fontWeight: '600' }}>{t('deviceStatusReady')}</CustomText>
                   </View>
                 </View>
-                
-                <CustomText style={{color: theme.muted, fontSize: 11, marginBottom: 12}}>
-                  {pairingInfo.addresses && pairingInfo.addresses.length > 0 
-                    ? pairingInfo.addresses.map(a => `${a}:${pairingInfo.port || 8765}`).join('  |  ') 
+
+                <CustomText style={{ color: theme.muted, fontSize: 11, marginBottom: 12 }}>
+                  {pairingInfo.addresses && pairingInfo.addresses.length > 0
+                    ? pairingInfo.addresses.map(a => `${a}:${pairingInfo.port || 8765}`).join('  |  ')
                     : `127.0.0.1:${pairingInfo.port || 8765}`}
                 </CustomText>
 
-                <View style={{flexDirection: 'row', gap: 10}}>
-                  <TouchableOpacity 
-                    style={{flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: theme.paper, borderWidth: 1, borderColor: theme.border, paddingVertical: 9, borderRadius: 6}}
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <TouchableOpacity
+                    activeOpacity={0.7}
+                    delayPressIn={0}
+                    style={[styles.settingsSecondaryBtn, { flex: 1 }]}
                     onPress={handleLanSyncPress}
                   >
                     <Feather name="refresh-cw" size={14} color={theme.accent} />
-                    <CustomText style={{color: theme.accent, fontSize: 12, fontWeight: '600'}}>{t('btnSyncNow')}</CustomText>
+                    <CustomText style={{ color: theme.accent, fontSize: 12, fontWeight: '600' }}>{t('btnSyncNow')}</CustomText>
                   </TouchableOpacity>
 
-                  <TouchableOpacity 
-                    style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: isLight ? 'rgba(160,52,42,0.08)' : 'rgba(212,90,74,0.12)', borderWidth: 1, borderColor: theme.red, paddingVertical: 9, paddingHorizontal: 12, borderRadius: 6}}
+                  <TouchableOpacity
+                    activeOpacity={0.7}
+                    delayPressIn={0}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 6,
+                      backgroundColor: isLight ? 'rgba(160,52,42,0.08)' : 'rgba(212,90,74,0.12)',
+                      borderWidth: 1,
+                      borderColor: theme.red,
+                      paddingVertical: 10,
+                      paddingHorizontal: 12,
+                      borderRadius: 6,
+                    }}
                     onPress={handleUnpairPress}
                   >
                     <Feather name="trash-2" size={14} color={theme.red} />
-                    <CustomText style={{color: theme.red, fontSize: 12, fontWeight: '600'}}>{t('btnUnpairDevice')}</CustomText>
+                    <CustomText style={{ color: theme.red, fontSize: 12, fontWeight: '600' }}>{t('btnUnpairDevice')}</CustomText>
                   </TouchableOpacity>
                 </View>
               </View>
             ) : (
-              <View style={[styles.settingsCard, { marginBottom: 20, alignItems: 'center', paddingVertical: 18 }]}>
-                <Feather name="monitor" size={26} color={theme.muted} style={{marginBottom: 8}} />
-                <CustomText style={{color: theme.text, fontSize: 13, fontWeight: 'bold', marginBottom: 4}}>{t('noDesktopPaired')}</CustomText>
-                <CustomText style={{color: theme.muted, fontSize: 11, textAlign: 'center', marginBottom: 14, paddingHorizontal: 12}}>
+              <View style={[styles.settingsCard, styles.settingsGroupCard, { alignItems: 'center', paddingVertical: 20 }]}>
+                <CustomText style={[styles.settingsCardKicker, { marginBottom: 12 }]}>
+                  {t('settingSyncDevicesTitle')}
+                </CustomText>
+                <Feather name="monitor" size={24} color={theme.muted} style={{ marginBottom: 8 }} />
+                <CustomText style={{ color: theme.text, fontSize: 13, fontWeight: 'bold', marginBottom: 4 }}>
+                  {t('noDesktopPaired')}
+                </CustomText>
+                <CustomText style={{ color: theme.muted, fontSize: 12, textAlign: 'center', lineHeight: 18, marginBottom: 16, paddingHorizontal: 8 }}>
                   {t('pairDesktopHint')}
                 </CustomText>
-                <TouchableOpacity 
-                  style={{flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: theme.accent, paddingVertical: 9, paddingHorizontal: 16, borderRadius: 6}}
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  delayPressIn={0}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: theme.accent, paddingVertical: 10, paddingHorizontal: 16, borderRadius: 6 }}
                   onPress={handlePairDesktopPress}
                 >
                   <Feather name="camera" size={14} color={theme.bg} />
-                  <CustomText style={{color: theme.bg, fontSize: 12, fontWeight: 'bold'}}>{t('btnPairDesktop')}</CustomText>
+                  <CustomText style={{ color: theme.bg, fontSize: 12, fontWeight: 'bold' }}>{t('btnPairDesktop')}</CustomText>
                 </TouchableOpacity>
               </View>
             )}
 
-            <CustomText style={[styles.settingsTitle, {fontSize: 14, color: theme.muted, marginTop: 10}]}>{t('bioSectionTitle')}</CustomText>
-            <View style={[styles.settingsCard, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }]}>
-              <View>
-                <CustomText style={{color: theme.text, fontSize: 14, fontWeight: 'bold'}}>{t('bioFingerprintFaceId')}</CustomText>
-                <CustomText style={{color: theme.muted, fontSize: 12, marginTop: 4}}>{t('bioNoPasswordSub')}</CustomText>
+            {/* Backups & Portable .fuin Card */}
+            <View style={[styles.settingsCard, styles.settingsGroupCard]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                <Feather name="database" size={16} color={theme.accent} />
+                <CustomText style={{ color: theme.text, fontSize: 14, fontWeight: 'bold' }}>
+                  {t('settingsBackupCardTitle')}
+                </CustomText>
               </View>
-              <Switch
-                value={biometricEnabled}
-                onValueChange={toggleBiometric}
-                trackColor={{ false: theme.border, true: theme.accent }}
-                thumbColor={theme.bg}
-              />
-            </View>
-
-            {autofillSupported && (
-              <>
-                <CustomText style={[styles.settingsTitle, {fontSize: 14, color: theme.muted, marginTop: 10}]}>{t('autofillTitle')}</CustomText>
-                <View style={[styles.settingsCard, { marginBottom: 20 }]}>
-                  <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8}}>
-                    <View style={{flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1}}>
-                      <Feather name="zap" size={18} color={theme.text} />
-                      <CustomText style={{color: theme.text, fontSize: 13, fontWeight: 'bold'}}>
-                        {autofillEnabled ? t('autofillStatusActive') : t('autofillStatusInactive')}
-                      </CustomText>
-                    </View>
-                    <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: autofillEnabled ? (isLight ? 'rgba(61,107,79,0.15)' : 'rgba(90,154,110,0.2)') : (isLight ? 'rgba(160,52,42,0.08)' : 'rgba(212,90,74,0.12)'), paddingVertical: 3, paddingHorizontal: 8, borderRadius: 12}}>
-                      <View style={{width: 6, height: 6, borderRadius: 3, backgroundColor: autofillEnabled ? theme.green : theme.red, marginRight: 5}} />
-                      <CustomText style={{color: autofillEnabled ? theme.green : theme.red, fontSize: 11, fontWeight: '600'}}>
-                        {autofillEnabled ? t('autofillStatusActive') : t('autofillStatusInactive')}
-                      </CustomText>
-                    </View>
-                  </View>
-                  <CustomText style={{color: theme.muted, fontSize: 12, marginBottom: 12}}>
-                    {t('autofillDesc')}
+              <CustomText style={{ color: theme.muted, fontSize: 12, lineHeight: 18, marginBottom: 12 }}>
+                {t('settingsBackupCardSub')}
+              </CustomText>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  delayPressIn={0}
+                  style={[styles.settingsSecondaryBtn, { flex: 1, minWidth: 136 }]}
+                  onPress={handleOpenBackupHistory}
+                >
+                  <Feather name="clock" size={14} color={theme.accent} />
+                  <CustomText style={{ color: theme.accent, fontSize: 12, fontWeight: 'bold' }}>
+                    {t('btnOpenBackupHistory')}
                   </CustomText>
-                  <TouchableOpacity
-                    style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: autofillEnabled ? theme.paper : theme.accent, borderWidth: 1, borderColor: autofillEnabled ? theme.border : theme.accent, paddingVertical: 9, borderRadius: 6}}
-                    onPress={async () => {
-                      await autofillService.openSettings();
-                      setTimeout(async () => {
-                        const en = await autofillService.isEnabled();
-                        setAutofillEnabled(en);
-                      }, 1000);
-                    }}
-                  >
-                    <Feather name="external-link" size={14} color={autofillEnabled ? theme.accent : theme.bg} />
-                    <CustomText style={{color: autofillEnabled ? theme.accent : theme.bg, fontSize: 12, fontWeight: 'bold'}}>
-                      {autofillEnabled ? t('autofillBtnSettings') : t('autofillBtnEnable')}
-                    </CustomText>
-                  </TouchableOpacity>
-                </View>
-              </>
-            )}
-
-            <CustomText style={[styles.settingsTitle, {fontSize: 14, color: theme.muted, marginTop: 10}]}>{t('autoLockTitle')}</CustomText>
-            <View style={{flexDirection: 'row', gap: 10, marginBottom: 20, flexWrap: 'wrap'}}>
-              {[
-                { label: t('time1m'), value: '60000' },
-                { label: t('time2m'), value: '120000' },
-                { label: t('time5m'), value: '300000' },
-                { label: t('time15m'), value: '900000' }
-              ].map(opt => (
-                <TouchableOpacity key={opt.value} style={[styles.settingsCard, { paddingVertical: 10, paddingHorizontal: 16 }]} onPress={async () => {
-                  const SecureStore = require('expo-secure-store');
-                  await SecureStore.setItemAsync('fuin-bg-timeout', opt.value);
-                  autofillService.syncVault(unprotectEntries(entries), parseInt(opt.value, 10)).catch(() => {});
-                  showAlert(t('alertSaved'), t('autoLockSavedMsg').replace('{label}', opt.label));
-                }}>
-                  <CustomText style={{color: theme.text, fontSize: 12, fontWeight: 'bold'}}>{opt.label}</CustomText>
                 </TouchableOpacity>
-              ))}
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  delayPressIn={0}
+                  style={[styles.settingsSecondaryBtn, { flex: 1, minWidth: 136 }]}
+                  onPress={() => switchTabSmooth('tools')}
+                >
+                  <Feather name="shield" size={14} color={theme.accent} />
+                  <CustomText style={{ color: theme.accent, fontSize: 12, fontWeight: 'bold' }}>
+                    {t('btnPortableFuinBackup')}
+                  </CustomText>
+                </TouchableOpacity>
+              </View>
             </View>
 
-            <CustomText style={[styles.settingsTitle, {fontSize: 14, color: theme.muted, marginTop: 10}]}>{t('sysSecurityTitle')}</CustomText>
-            <View style={styles.settingsCard}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+            {/* ── GROUP 3: APPEARANCE, LANGUAGE & SYSTEM ── */}
+            <CustomText style={styles.settingsGroupHeader}>
+              {t('settingsGroupAppearanceSystem')}
+            </CustomText>
+
+            {/* Theme & Language Card */}
+            <View style={[styles.settingsCard, styles.settingsGroupCard]}>
+              <CustomText style={[styles.settingsCardKicker, { marginBottom: 12 }]}>
+                {t('themeTitle')}
+              </CustomText>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                {['dark', 'light', 'system'].map(m => {
+                  const isActive = themeMode === m;
+                  return (
+                    <TouchableOpacity
+                      key={m}
+                      activeOpacity={0.7}
+                      delayPressIn={0}
+                      style={[
+                        styles.settingsPillBtn,
+                        { flex: 1 },
+                        isActive && {
+                          borderColor: theme.accent,
+                          backgroundColor: isLight ? 'rgba(61,107,79,0.12)' : 'rgba(90,154,110,0.14)',
+                        },
+                      ]}
+                      onPress={() => changeTheme(m)}
+                    >
+                      <CustomText style={{ color: isActive ? theme.accent : theme.text, fontSize: 12, fontWeight: 'bold', textTransform: 'uppercase' }}>
+                        {m === 'system' ? t('themeSystem') : m === 'dark' ? t('themeDark') : t('themeLight')}
+                      </CustomText>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <View style={styles.settingsDivider} />
+
+              <CustomText style={[styles.settingsCardKicker, { marginBottom: 12 }]}>
+                {t('langTitle')}
+              </CustomText>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                {['tr', 'en'].map(l => {
+                  const isActive = lang === l;
+                  return (
+                    <TouchableOpacity
+                      key={l}
+                      activeOpacity={0.7}
+                      delayPressIn={0}
+                      style={[
+                        styles.settingsPillBtn,
+                        { flex: 1 },
+                        isActive && {
+                          borderColor: theme.accent,
+                          backgroundColor: isLight ? 'rgba(61,107,79,0.12)' : 'rgba(90,154,110,0.14)',
+                        },
+                      ]}
+                      onPress={() => setLang(l)}
+                    >
+                      <CustomText style={{ color: isActive ? theme.accent : theme.text, fontSize: 12, fontWeight: 'bold', textTransform: 'uppercase' }}>
+                        {l === 'tr' ? 'TR' : 'EN'}
+                      </CustomText>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            {/* Updates & Cryptographic Architecture Card */}
+            <View style={[styles.settingsCard, styles.settingsGroupCard]}>
+              <CustomText style={[styles.settingsCardKicker, { marginBottom: 12 }]}>
+                {t('sysSecurityTitle')}
+              </CustomText>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
                 <View style={{ flex: 1 }}>
-                  <CustomText style={{color: theme.text, fontSize: 14, fontWeight: 'bold'}}>
+                  <CustomText style={{ color: theme.text, fontSize: 14, fontWeight: 'bold' }}>
                     Fuin Mobile v{updater.currentVersion}
                   </CustomText>
-                  <CustomText style={{color: theme.muted, fontSize: 12, marginTop: 4}}>{t('sysLocalVaultActive')}</CustomText>
+                  <CustomText style={{ color: theme.muted, fontSize: 12, marginTop: 4 }}>
+                    {t('sysLocalVaultActive')}
+                  </CustomText>
                 </View>
 
                 {updater.isSupported ? (
@@ -1147,8 +1645,8 @@ export default function VaultScreen({
                       gap: 6,
                       paddingHorizontal: 12,
                       paddingVertical: 8,
-                      borderRadius: 4,
-                      backgroundColor: updater.updateInfo ? theme.accent : 'transparent',
+                      borderRadius: 6,
+                      backgroundColor: updater.updateInfo ? theme.accent : theme.paper,
                       borderWidth: 1,
                       borderColor: updater.updateInfo ? theme.accent : theme.border,
                       opacity: (updater.checking || updater.downloading || updater.verifying) ? 0.65 : 1,
@@ -1176,14 +1674,14 @@ export default function VaultScreen({
               </View>
 
               {(updater.downloading || updater.verifying) ? (
-                <View style={{ marginTop: 10 }}>
+                <View style={{ marginTop: 12 }}>
                   <View style={{ height: 4, backgroundColor: theme.border, borderRadius: 2, overflow: 'hidden' }}>
                     <View style={{ width: `${updater.verifying ? 100 : updater.progress.percent}%`, height: '100%', backgroundColor: theme.accent }} />
                   </View>
-                  <CustomText style={{ color: theme.muted, fontSize: 11, marginTop: 5 }}>
+                  <CustomText style={{ color: theme.muted, fontSize: 11, marginTop: 4 }}>
                     {updater.verifying
                       ? t('updateVerifying')
-                      : (t('updateDownloading') || 'İndiriliyor... %{percent}').replace('{percent}', String(updater.progress.percent))}
+                      : t('updateDownloading').replace('{percent}', String(updater.progress.percent))}
                   </CustomText>
                 </View>
               ) : updater.statusMessage ? (
@@ -1191,33 +1689,55 @@ export default function VaultScreen({
                   {updater.statusMessage}
                 </CustomText>
               ) : null}
-              
-              <View style={{height: 1, backgroundColor: theme.border, marginVertical: 10}} />
-              <CustomText style={{color: theme.text, fontSize: 13, fontWeight: 'bold', marginBottom: 5}}>{t('sysCryptoArchitecture')}</CustomText>
-              <CustomText style={{color: theme.muted, fontSize: 11, lineHeight: 16}}>
-                {t('sysCryptoDetails')}
-              </CustomText>
+
+              <View style={styles.settingsDivider} />
+
+              <TouchableOpacity
+                activeOpacity={0.7}
+                delayPressIn={0}
+                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
+                onPress={() => setShowCryptoDetails(prev => !prev)}
+              >
+                <CustomText style={{ color: theme.text, fontSize: 13, fontWeight: 'bold' }}>
+                  {t('sysCryptoArchitecture')}
+                </CustomText>
+                <Feather name={showCryptoDetails ? 'chevron-up' : 'chevron-down'} size={16} color={theme.muted} />
+              </TouchableOpacity>
+              {showCryptoDetails ? (
+                <CustomText style={{ color: theme.muted, fontSize: 11, lineHeight: 18, marginTop: 8 }}>
+                  {t('sysCryptoDetails')}
+                </CustomText>
+              ) : null}
             </View>
 
-            <TouchableOpacity 
+            {/* What's New Card */}
+            <TouchableOpacity
               activeOpacity={0.7}
               delayPressIn={0}
-              style={[styles.settingsCard, { marginTop: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]} 
+              style={[styles.settingsCard, styles.settingsGroupCard, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}
               onPress={() => setWhatsNewModalVisible(true)}
             >
-              <View style={{ flex: 1, paddingRight: 10 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <View style={{ flex: 1, paddingRight: 12 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                   <Feather name="zap" size={14} color={theme.accent} />
-                  <CustomText style={{ color: theme.text, fontSize: 13, fontWeight: 'bold' }}>{t('whatsNewTitle') || 'Neler Yeni?'}</CustomText>
+                  <CustomText style={{ color: theme.text, fontSize: 13, fontWeight: 'bold' }}>{t('whatsNewTitle')}</CustomText>
                 </View>
                 <CustomText style={{ color: theme.muted, fontSize: 11, marginTop: 4, lineHeight: 16 }}>
-                  {t('whatsNewSub') || 'Son sürümlerdeki güncellemeleri ve güvenlik iyileştirmelerini görüntüleyin.'}
+                  {t('whatsNewSub')}
                 </CustomText>
               </View>
               <Feather name="chevron-right" size={18} color={theme.muted} />
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.settingsCard, { marginTop: 16, marginBottom: 40 }]} onPress={onLogout}>
-              <CustomText style={{color: theme.red, fontSize: 14, fontWeight: '600'}}>{t('lockSessionBtn')}</CustomText>
+
+            {/* Lock Session Action */}
+            <TouchableOpacity
+              activeOpacity={0.7}
+              delayPressIn={0}
+              style={[styles.settingsCard, { marginTop: 8, marginBottom: 40, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }]}
+              onPress={onLogout}
+            >
+              <Feather name="log-out" size={15} color={theme.red} />
+              <CustomText style={{ color: theme.red, fontSize: 14, fontWeight: '600' }}>{t('lockSessionBtn')}</CustomText>
             </TouchableOpacity>
           </ScrollView>
         )}
@@ -1276,7 +1796,7 @@ export default function VaultScreen({
         >
           <Feather name="wifi" size={22} color={theme.muted} />
           <CustomText style={styles.navText}>
-            {t('tabLanSync') || 'Eşitle'}
+            {t('tabLanSync')}
           </CustomText>
         </TouchableOpacity>
 
@@ -1428,6 +1948,248 @@ export default function VaultScreen({
             </View>
           </View>
         </View>
+      </Modal>
+
+      {/* Master Password Reprompt Modal (fail-closed fallback when biometrics are unavailable) */}
+      <Modal
+        visible={repromptModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => closeRepromptModal(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.changePwBackdrop}
+        >
+          <View style={styles.changePwCard}>
+            <View style={styles.changePwHeader}>
+              <CustomText style={styles.changePwTitle}>{t('repromptModalTitle')}</CustomText>
+              <TouchableOpacity
+                activeOpacity={0.7}
+                delayPressIn={0}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                onPress={() => closeRepromptModal(false)}
+              >
+                <Feather name="x" size={18} color={theme.muted} />
+              </TouchableOpacity>
+            </View>
+
+            <CustomText style={styles.changePwDesc}>{t('repromptModalDesc')}</CustomText>
+
+            <CustomText style={styles.changePwFieldLabel}>{t('changePwCurrentLabel')}</CustomText>
+            <View style={styles.changePwInputWrap}>
+              <CustomTextInput
+                style={styles.changePwInput}
+                value={repromptPwInput}
+                onChangeText={(val) => {
+                  setRepromptPwInput(val);
+                  if (repromptError) setRepromptError('');
+                }}
+                placeholder={t('repromptPasswordPh')}
+                placeholderTextColor={theme.muted}
+                secureTextEntry={!showRepromptPw}
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoFocus
+                maxLength={128}
+                onSubmitEditing={handleSubmitRepromptPw}
+              />
+              <TouchableOpacity
+                activeOpacity={0.7}
+                delayPressIn={0}
+                style={styles.changePwEyeBtn}
+                onPress={() => setShowRepromptPw(prev => !prev)}
+              >
+                <Feather name={showRepromptPw ? 'eye-off' : 'eye'} size={16} color={theme.muted} />
+              </TouchableOpacity>
+            </View>
+
+            {repromptError ? (
+              <View style={[
+                styles.changePwErrorBox,
+                { backgroundColor: isLight ? 'rgba(160,52,42,0.08)' : 'rgba(212,90,74,0.12)' },
+              ]}>
+                <CustomText style={styles.changePwErrorText}>{repromptError}</CustomText>
+              </View>
+            ) : null}
+
+            <View style={styles.changePwFooter}>
+              <TouchableOpacity
+                activeOpacity={0.7}
+                delayPressIn={0}
+                style={styles.changePwCancelBtn}
+                onPress={() => closeRepromptModal(false)}
+              >
+                <CustomText style={{ color: theme.text, fontSize: 13, fontWeight: 'bold' }}>
+                  {t('btnCancel')}
+                </CustomText>
+              </TouchableOpacity>
+              <TouchableOpacity
+                activeOpacity={0.7}
+                delayPressIn={0}
+                style={styles.changePwSaveBtn}
+                onPress={handleSubmitRepromptPw}
+              >
+                <CustomText style={{ color: theme.bg, fontSize: 13, fontWeight: 'bold' }}>
+                  {t('btnVerify')}
+                </CustomText>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Change Master Password Modal */}
+      <Modal
+        visible={changePwModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={closeChangePwModal}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.changePwBackdrop}
+        >
+          <View style={styles.changePwCard}>
+            <View style={styles.changePwHeader}>
+              <CustomText style={styles.changePwTitle}>{t('changePwModalTitle')}</CustomText>
+              <TouchableOpacity
+                activeOpacity={0.7}
+                delayPressIn={0}
+                disabled={changePwBusy}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                onPress={closeChangePwModal}
+              >
+                <Feather name="x" size={18} color={theme.muted} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              <CustomText style={styles.changePwDesc}>{t('changePwModalDesc')}</CustomText>
+
+              {/* Current Master Password */}
+              <CustomText style={styles.changePwFieldLabel}>{t('changePwCurrentLabel')}</CustomText>
+              <View style={styles.changePwInputWrap}>
+                <CustomTextInput
+                  style={styles.changePwInput}
+                  value={curMasterPw}
+                  onChangeText={(val) => {
+                    setCurMasterPw(val);
+                    if (changePwError) setChangePwError('');
+                  }}
+                  placeholder={t('changePwCurrentPh')}
+                  placeholderTextColor={theme.muted}
+                  secureTextEntry={!showCurMasterPw}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  maxLength={128}
+                  editable={!changePwBusy}
+                />
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  delayPressIn={0}
+                  style={styles.changePwEyeBtn}
+                  onPress={() => setShowCurMasterPw(prev => !prev)}
+                >
+                  <Feather name={showCurMasterPw ? 'eye-off' : 'eye'} size={16} color={theme.muted} />
+                </TouchableOpacity>
+              </View>
+
+              {/* New Master Password */}
+              <CustomText style={styles.changePwFieldLabel}>{t('changePwNewLabel')}</CustomText>
+              <View style={styles.changePwInputWrap}>
+                <CustomTextInput
+                  style={styles.changePwInput}
+                  value={newMasterPw}
+                  onChangeText={(val) => {
+                    setNewMasterPw(val);
+                    if (changePwError) setChangePwError('');
+                  }}
+                  placeholder={t('changePwNewPh')}
+                  placeholderTextColor={theme.muted}
+                  secureTextEntry={!showNewMasterPw}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  maxLength={128}
+                  editable={!changePwBusy}
+                />
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  delayPressIn={0}
+                  style={styles.changePwEyeBtn}
+                  onPress={() => setShowNewMasterPw(prev => !prev)}
+                >
+                  <Feather name={showNewMasterPw ? 'eye-off' : 'eye'} size={16} color={theme.muted} />
+                </TouchableOpacity>
+              </View>
+
+              {/* Confirm New Master Password */}
+              <CustomText style={styles.changePwFieldLabel}>{t('changePwConfirmLabel')}</CustomText>
+              <View style={styles.changePwInputWrap}>
+                <CustomTextInput
+                  style={styles.changePwInput}
+                  value={confirmMasterPw}
+                  onChangeText={(val) => {
+                    setConfirmMasterPw(val);
+                    if (changePwError) setChangePwError('');
+                  }}
+                  placeholder={t('changePwConfirmPh')}
+                  placeholderTextColor={theme.muted}
+                  secureTextEntry={!showConfirmMasterPw}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  maxLength={128}
+                  editable={!changePwBusy}
+                />
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  delayPressIn={0}
+                  style={styles.changePwEyeBtn}
+                  onPress={() => setShowConfirmMasterPw(prev => !prev)}
+                >
+                  <Feather name={showConfirmMasterPw ? 'eye-off' : 'eye'} size={16} color={theme.muted} />
+                </TouchableOpacity>
+              </View>
+
+              {changePwError ? (
+                <View style={[
+                  styles.changePwErrorBox,
+                  { backgroundColor: isLight ? 'rgba(160,52,42,0.08)' : 'rgba(212,90,74,0.12)' },
+                ]}>
+                  <CustomText style={styles.changePwErrorText}>{changePwError}</CustomText>
+                </View>
+              ) : null}
+
+              <View style={styles.changePwFooter}>
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  delayPressIn={0}
+                  disabled={changePwBusy}
+                  style={[styles.changePwCancelBtn, changePwBusy && { opacity: 0.6 }]}
+                  onPress={closeChangePwModal}
+                >
+                  <CustomText style={{ color: theme.text, fontSize: 13, fontWeight: 'bold' }}>
+                    {t('btnCancel')}
+                  </CustomText>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  delayPressIn={0}
+                  disabled={changePwBusy}
+                  style={[styles.changePwSaveBtn, changePwBusy && { opacity: 0.65 }]}
+                  onPress={handleSubmitChangePw}
+                >
+                  <CustomText style={{ color: theme.bg, fontSize: 13, fontWeight: 'bold' }}>
+                    {changePwBusy ? t('changePwSaving') : t('btnSaveNewMasterPw')}
+                  </CustomText>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
 
     </SafeAreaView>
@@ -1586,12 +2348,159 @@ const getStyles = (theme) => StyleSheet.create({
     letterSpacing: 2,
     marginBottom: 20,
   },
+  settingsGroupHeader: {
+    color: theme.muted,
+    fontSize: 12,
+    fontWeight: 'bold',
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+    marginTop: 12,
+    marginBottom: 12,
+  },
   settingsCard: {
     backgroundColor: theme.card,
-    padding: 20,
-    borderRadius: 4,
+    padding: 16,
+    borderRadius: 6,
     borderWidth: 1,
     borderColor: theme.border,
+  },
+  settingsGroupCard: {
+    marginBottom: 12,
+  },
+  settingsCardKicker: {
+    color: theme.muted,
+    fontSize: 11,
+    fontWeight: 'bold',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+  },
+  settingsDivider: {
+    height: 1,
+    backgroundColor: theme.border,
+    marginVertical: 12,
+  },
+  settingsPillBtn: {
+    backgroundColor: theme.paper,
+    borderWidth: 1,
+    borderColor: theme.border,
+    borderRadius: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  settingsSecondaryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: theme.paper,
+    borderWidth: 1,
+    borderColor: theme.border,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+  },
+  changePwBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.68)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  changePwCard: {
+    width: '100%',
+    maxWidth: 380,
+    maxHeight: '88%',
+    backgroundColor: theme.paper,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: theme.border,
+    padding: 20,
+  },
+  changePwHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  changePwTitle: {
+    color: theme.text,
+    fontSize: 14,
+    fontWeight: 'bold',
+    letterSpacing: 1.5,
+  },
+  changePwDesc: {
+    color: theme.muted,
+    fontSize: 12,
+    lineHeight: 18,
+    marginBottom: 16,
+  },
+  changePwFieldLabel: {
+    color: theme.muted,
+    fontSize: 11,
+    fontWeight: 'bold',
+    letterSpacing: 1,
+    marginBottom: 8,
+  },
+  changePwInputWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.card,
+    borderWidth: 1,
+    borderColor: theme.border,
+    borderRadius: 6,
+    marginBottom: 12,
+  },
+  changePwInput: {
+    flex: 1,
+    color: theme.text,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    fontSize: 14,
+  },
+  changePwEyeBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  changePwErrorBox: {
+    borderWidth: 1,
+    borderColor: theme.red,
+    borderRadius: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 12,
+  },
+  changePwErrorText: {
+    color: theme.red,
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  changePwFooter: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 4,
+    paddingBottom: Platform.OS === 'ios' ? 8 : 4,
+  },
+  changePwCancelBtn: {
+    flex: 1,
+    backgroundColor: theme.card,
+    borderWidth: 1,
+    borderColor: theme.border,
+    borderRadius: 6,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  changePwSaveBtn: {
+    flex: 1,
+    backgroundColor: theme.accent,
+    borderRadius: 6,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   bottomBar: {
     flexDirection: 'row',

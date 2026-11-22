@@ -5,13 +5,21 @@
 # Fuin Mobile
 **Quietly secure on the go.**
 
-The Android companion app I built for [Fuin](https://github.com/Sombooo/Fuin)—also works standalone on your phone with zero cloud accounts.
+The Android companion app I built for **[Fuin](https://github.com/Sombooo/Fuin)**—works both synced with Desktop over local Wi-Fi and standalone on your phone with zero cloud servers.
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPLv3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![Platform: Android](https://img.shields.io/badge/Platform-Android-366347.svg)](#)
-[![Desktop: Fuin](https://img.shields.io/badge/Desktop-macOS%20%7C%20Windows-lightgray.svg)](https://github.com/Sombooo/Fuin)
+[![Desktop: Fuin](https://img.shields.io/badge/Desktop-macOS%20%7C%20Windows%20%7C%20Linux-lightgray.svg)](https://github.com/Sombooo/Fuin)
 
 </div>
+
+<br />
+
+## An Honest Note Before You Start
+
+I built **Fuin Mobile** with the help of **AI coding tools** because after building [Fuin Desktop](https://github.com/Sombooo/Fuin), I still needed my passwords and 2FA codes on my phone without putting my vault in the cloud.
+
+I'm a solo developer working on this in my own time, not a big security company. I test it daily and try to fix rough edges as quickly as I find them, **but** no software is perfect and it hasn't had a formal external audit yet. Because Play Store and Apple Developer accounts cost fees I can't put into this right now, APK builds are distributed directly through GitHub Releases (with SHA-256 checksums), and an iOS release isn't available yet.
 
 <br />
 
@@ -42,58 +50,46 @@ The Android companion app I built for [Fuin](https://github.com/Sombooo/Fuin)—
 
 <br />
 
-## Why I Built Fuin Mobile
-
-When I built the desktop version of **[Fuin](https://github.com/Sombooo/Fuin)** to stop storing my logins in the cloud, I quickly ran into the practical downside: I still needed my passwords and 2FA codes on my phone. Running my own sync server felt like overkill, so I built **Fuin Mobile** instead.
-
-You can use it purely as a standalone local vault on Android, or pair it with Fuin Desktop via QR code and sync updates back and forth over your own Wi-Fi or phone hotspot. No accounts, no servers, no analytics.
-
-It's still in active beta—I use it daily and keep fixing rough edges as I find them.
-
----
-
 ## What It Includes
 
-- **Offline Vault for Logins, Cards & Notes:** Store website credentials, payment cards (auto-formatted by card brand), and private secure notes encrypted locally on your device.
-- **Direct LAN P2P Sync:** Pair once with Fuin Desktop by scanning an optical QR code, then sync diffs over local Wi-Fi or your hotspot using ephemeral **XChaCha20-Poly1305** encrypted packets.
-- **Built-in 2FA & QR Scanner:** Save TOTP secrets (or scan `otpauth://` QR codes directly with your camera) and copy live 6-digit codes.
-- **Native Android Autofill & Biometrics:** Fill logins inside Android apps and browsers through Android's native `AutofillService`, and unlock quickly with your fingerprint or face alongside your master password.
-- **Health Check, Breach Scan & `.fuin` Backups:** Spot weak or reused passwords offline, optionally run a k-Anonymity check against HaveIBeenPwned, import CSV/JSON exports from Bitwarden/1Password/LastPass/Chrome, and create portable encrypted `.fuin` backups or local snapshots.
-
----
-
-## How Security Works Underneath
-
-Instead of vague claims, here is what protects your data on-device:
-
-- **Argon2id Key Derivation:** Turns your master password into encryption keys directly on your phone using **Argon2id** (`64 MiB` memory, `3` iterations).
-- **Authenticated Storage (`AES-256-GCM`):** Your vault and `.fuin` backups are encrypted with **AES-256-GCM**, failing safely if anything is tampered with.
-- **Local-Only Network Sync (`XChaCha20-Poly1305`):** Sync packets use **XChaCha20-Poly1305**, per-request nonces, and strict `RFC1918` local-network validation so nothing goes out over the public internet.
-- **Brute-Force & Screen Guards:** Enforces escalating lock delays after wrong password attempts, clears clipboard secrets automatically, and enables Android `FLAG_SECURE` screenshot protection in production builds.
-
-You can read the details in [`SECURITY.md`](./SECURITY.md) and [`PRIVACY.md`](./PRIVACY.md).
-
----
-
-## Running from Source
-
-Fuin Mobile is built with **React Native** and **Expo**:
-
-```bash
-# Install dependencies
-npm install
-
-# Run static & crypto/sync interoperability tests
-npm test
-
-# Start the Metro bundler for development
-npx expo start
-```
+- **Offline Vault for Logins, Cards & Notes:** Store website logins, formatted payment cards, and private notes encrypted locally on your device.
+- **Direct LAN P2P Sync:** Pair once with [Fuin Desktop](https://github.com/Sombooo/Fuin) via an optical QR code, then sync edits back and forth over your own Wi-Fi or phone hotspot—no cloud accounts or relay servers.
+- **Built-in 2FA & QR Scanner:** Save TOTP keys (or scan `otpauth://` QR codes with the camera) and copy live 6-digit codes.
+- **Native Android Autofill & Biometrics:** Fill logins inside Android apps and browsers through Android's native `AutofillService`, and unlock with hardware-backed biometrics alongside your master password.
+- **Master Password Change & Recovery Key:** Rotate your master password directly in Settings (updating biometric & recovery state cleanly) or restore access with your offline recovery key.
+- **Breach Check, Importers & `.fuin` Backups:** Spot weak or reused passwords offline, optionally run a HaveIBeenPwned k-Anonymity check, import CSV/JSON from Bitwarden, 1Password, LastPass, or Chrome, and create portable encrypted `.fuin` backups.
 
 ---
 
 ## Support & Feedback
 
-Fuin Mobile is independent open-source software licensed under **AGPLv3**. If you try it out and hit a bug or have an idea, issues and PRs are always welcome. And if you'd like to support the project, you can buy me a coffee below—thank you!
+Fuin Mobile is open-source software under **AGPLv3**. If you test it out and find a bug or UX issue, opening an issue or PR helps a lot. And if it helps you and you feel like buying me a coffee, you can do so below.
+
+Wishing you all happy days — and don't forget to drink some water and stay hydrated!
 
 [![Support via Lemon Squeezy](https://img.shields.io/badge/Support_Fuin-Buy_Me_A_Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://fuindev.lemonsqueezy.com/checkout/buy/c898c753-098b-4c0b-a721-77332db06bdc)
+
+---
+
+## Technical Details & Running from Source
+
+### Security Summary (Plainly Stated)
+- **Argon2id KDF:** Derives encryption keys locally on-device using **Argon2id** (`64 MiB` memory, `3` iterations) via native bindings (`react-native-argon2`).
+- **AES-256-GCM Storage:** The local vault and portable `.fuin` backups use **AES-256-GCM** with atomic file writes and `.bak` recovery snapshots.
+- **Local LAN P2P (`XChaCha20-Poly1305`):** Sync packets use **XChaCha20-Poly1305**, per-request nonces, directional binding, strict dotted-decimal `RFC1918` IP validation, and disabled HTTP redirects.
+- **Android Hardening:** Enforces `FLAG_SECURE` synchronously on launch, `android:allowBackup="false"`, `BIOMETRIC_STRONG` + `CryptoObject` on Autofill unlock, browser APK signing certificate checks, and native `EXTRA_IS_SENSITIVE` clipboard tagging + `AlarmManager` auto-clear.
+
+More details are in [`SECURITY.md`](./SECURITY.md) and [`PRIVACY.md`](./PRIVACY.md).
+
+### Running & Testing Locally
+
+```bash
+# Install dependencies
+npm install
+
+# Run static & unit tests
+npm test
+
+# Start the Metro bundler
+npx expo start
+```

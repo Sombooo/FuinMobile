@@ -37,18 +37,22 @@ export default function useAutofillSync({
 
       (async () => {
         try {
+          const isAutofillEnabled = await autofillService.isEnabled();
+          if (cancelled) return;
+
           const parsed = typeof vaultData === 'string' ? JSON.parse(vaultData) : vaultData;
           const baseObj = parsed && !Array.isArray(parsed) ? parsed : { type: 'fuin/vault', categories: [] };
           const entries = parsed?.entries || (Array.isArray(parsed) ? parsed : []);
-          const unprotected = unprotectEntries(entries);
 
+          let pendingSaves = [];
           if (!isConsumingRef.current && password) {
             isConsumingRef.current = true;
             try {
-              const pendingSaves = await autofillService.peekPendingSaves();
+              pendingSaves = await autofillService.peekPendingSaves();
               if (!cancelled && pendingSaves.length > 0) {
+                const unprotectedForMerge = unprotectEntries(entries);
                 const { entries: mergedEntries, changed, acknowledgedIds } =
-                  mergePendingAutofillSaves(unprotected, pendingSaves);
+                  mergePendingAutofillSaves(unprotectedForMerge, pendingSaves);
 
                 if (changed) {
                   const savedOk = await onUpdateVaultData(
@@ -68,7 +72,8 @@ export default function useAutofillSync({
             }
           }
 
-          if (!cancelled) {
+          if (!cancelled && isAutofillEnabled) {
+            const unprotected = unprotectEntries(entries);
             const timeoutMs = await readConfiguredTimeoutMs();
             if (!cancelled) {
               await autofillService.syncVault(unprotected, timeoutMs);
@@ -81,7 +86,18 @@ export default function useAutofillSync({
         cancelled = true;
       };
     } else if (mode === 'lock') {
-      autofillService.lockSession().catch(() => {});
+      (async () => {
+        try {
+          const bioEnabled = await SecureStore.getItemAsync('fuin-biometric-enabled');
+          if (bioEnabled !== 'true') {
+            await autofillService.clearAll();
+          } else {
+            await autofillService.lockSession();
+          }
+        } catch (_) {
+          autofillService.clearAll().catch(() => {});
+        }
+      })();
     }
   }, [vaultData, mode, isAppActive, password]);
 }

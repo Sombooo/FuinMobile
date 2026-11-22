@@ -185,28 +185,45 @@ export async function loadVault() {
 }
 
 export async function clearVault() {
-  const info = await FileSystem.getInfoAsync(VAULT_FILE);
-  if (info.exists) {
-    await FileSystem.deleteAsync(VAULT_FILE);
-  }
+  try {
+    const info = await FileSystem.getInfoAsync(VAULT_FILE);
+    if (info.exists) {
+      await FileSystem.deleteAsync(VAULT_FILE, { idempotent: true });
+    }
+  } catch (e) {}
+  try {
+    await FileSystem.deleteAsync(VAULT_FILE + '.bak', { idempotent: true });
+  } catch (e) {}
   try {
     await FileSystem.deleteAsync(BACKUP_DIR, { idempotent: true });
   } catch (e) {}
   try {
     await AsyncStorage.removeItem(SYNC_STATE_KEY);
   } catch (e) {}
-  try {
-    await SecureStore.deleteItemAsync(MASTER_SALT_KEY);
-    await SecureStore.deleteItemAsync('fuin-biometric-key');
-    await SecureStore.deleteItemAsync('fuin-biometric-enabled');
-    await SecureStore.deleteItemAsync('fuin_lan_paired_device');
-    await SecureStore.deleteItemAsync('fuin_lan_pair_key');
-    await SecureStore.deleteItemAsync('fuin_lan_port');
-    await SecureStore.deleteItemAsync('fuin_lan_addresses');
-    await SecureStore.deleteItemAsync('fuin_clip_expire');
-    await SecureStore.deleteItemAsync('fuin_clip_hash');
-    await SecureStore.deleteItemAsync('fuin_clip_val');
-  } catch (e) {}
+
+  const secureStoreKeys = [
+    MASTER_SALT_KEY,
+    'fuin-biometric-key',
+    'fuin-biometric-enabled',
+    'fuin_lan_paired_device',
+    'fuin_lan_pair_key',
+    'fuin_lan_port',
+    'fuin_lan_addresses',
+    'fuin_clip_expire',
+    'fuin_clip_hash',
+    'fuin_clip_val',
+    'fuin-recovery-code-hash',
+    'fuin-recovery-data',
+    'fuin-recovery-code',
+    'fuin-recovery-pass',
+    'fuin_fail_count',
+    'fuin_lock_until',
+  ];
+  for (const key of secureStoreKeys) {
+    try {
+      await SecureStore.deleteItemAsync(key);
+    } catch (e) {}
+  }
 }
 
 // --- SYNC STATE ---

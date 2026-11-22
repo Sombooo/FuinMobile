@@ -18,10 +18,18 @@ export function useVaultLifecycle({ onLock, onCheckLocalVault }) {
     if (onCheckLocalVault) onCheckLocalVault();
 
     const subscription = AppState.addEventListener('change', async nextAppState => {
-      setIsAppActive(nextAppState === 'active');
-      if (appState.current.match(/active/) && nextAppState.match(/inactive|background/)) {
-        backgroundTime.current = Date.now();
-      } else if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
+      const prevState = appState.current;
+      appState.current = nextAppState;
+
+      if (nextAppState !== 'active') {
+        setIsAppActive(false);
+        if (prevState && prevState.match(/active/) && nextAppState.match(/inactive|background/)) {
+          backgroundTime.current = Date.now();
+        }
+        return;
+      }
+
+      if (prevState && prevState.match(/inactive|background/)) {
         if (backgroundTime.current) {
           const elapsed = Date.now() - backgroundTime.current;
           try {
@@ -30,16 +38,21 @@ export function useVaultLifecycle({ onLock, onCheckLocalVault }) {
             if (timeout > 0 && elapsed > timeout) {
               if (onLock) onLock();
             }
-          } catch (e) {}
+          } catch (e) {
+            if (onLock) onLock();
+          }
         }
-        
+
         try {
           await clearIfExpired();
         } catch (e) {}
 
         backgroundTime.current = null;
       }
-      appState.current = nextAppState;
+
+      if (appState.current === 'active') {
+        setIsAppActive(true);
+      }
     });
 
     return () => {

@@ -102,6 +102,30 @@ const withAndroidAutofill = (config) => {
             fs.writeFileSync(mainAppFile, mainAppContent, 'utf8');
           }
         }
+
+        // Ensure MainActivity enforces FLAG_SECURE synchronously in onCreate (MOB-NV-02)
+        const mainActivityFile = path.join(targetJavaDir, 'MainActivity.kt');
+        if (fs.existsSync(mainActivityFile)) {
+          let mainActContent = fs.readFileSync(mainActivityFile, 'utf8');
+          let modified = false;
+          if (!mainActContent.includes('import android.view.WindowManager')) {
+            mainActContent = mainActContent.replace(
+              /import android\.os\.Bundle/,
+              'import android.os.Bundle\nimport android.view.WindowManager'
+            );
+            modified = true;
+          }
+          if (!mainActContent.includes('WindowManager.LayoutParams.FLAG_SECURE')) {
+            mainActContent = mainActContent.replace(
+              /super\.onCreate\([^\n]*\)/,
+              '$&\n    window.setFlags(\n      WindowManager.LayoutParams.FLAG_SECURE,\n      WindowManager.LayoutParams.FLAG_SECURE\n    )'
+            );
+            modified = true;
+          }
+          if (modified) {
+            fs.writeFileSync(mainActivityFile, mainActContent, 'utf8');
+          }
+        }
       }
       return config;
     },
@@ -168,6 +192,9 @@ const withAndroidAutofill = (config) => {
     }
 
     const mainApplication = manifestRoot.application[0];
+    mainApplication.$ = mainApplication.$ || {};
+    // Enforce Zero-Cloud invariant: never back up SharedPreferences or app data to Android Auto Backup (MOB-08)
+    mainApplication.$['android:allowBackup'] = 'false';
 
     // Ensure service is declared
     mainApplication.service = mainApplication.service || [];

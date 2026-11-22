@@ -13,15 +13,46 @@ const COMPOUND_PUBLIC_SUFFIXES = new Set([
   'com.br', 'com.mx', 'co.in', 'co.nz', 'co.za', 'co.kr',
 ]);
 
+const STANDARD_CCTLD_SLDS = new Set([
+  'co', 'com', 'net', 'org', 'gov', 'edu', 'ac', 'or', 'ne', 'go',
+  'gob', 'mil', 'biz', 'info', 'gen', 'web', 'nom', 'bel', 'pol', 'k12',
+  'av', 'bbs', 'dr', 'firm', 'ind', 'kep', 'me', 'tsk',
+]);
+
 const MULTI_TENANT_SUFFIXES = new Set([
   'github.io', 'gitlab.io', 'vercel.app', 'netlify.app', 'pages.dev',
   'firebaseapp.com', 'web.app', 'blogspot.com', 'herokuapp.com',
   'onrender.com', 'workers.dev', 'fly.dev', 'railway.app',
+  'wordpress.com', 'tumblr.com', 'azurewebsites.net', 'appspot.com',
+  'cloudfront.net', 'run.app', 'replit.app', 'hf.space',
+  'webflow.io', 'notion.site', 'itch.io',
+  'trycloudflare.com', 'pythonanywhere.com',
+  '000webhostapp.com', 'amplifyapp.com', 'azureedge.net', 'b-cdn.net',
+  'blob.core.windows.net', 'deno.dev', 'elasticbeanstalk.com', 'fastly.net',
+  'ghost.io', 'glitch.me', 'myshopify.com', 'ngrok-free.app',
+  'ngrok.io', 'pantheonsite.io', 'pipedream.net', 'render.com',
+  's3.amazonaws.com', 'substack.com', 'surge.sh', 'trafficmanager.net',
+  'up.railway.app', 'wixsite.com',
 ]);
+
+function isIpLiteral(host) {
+  if (!host || typeof host !== 'string') return false;
+  const h = host.toLowerCase().trim().replace(/^\[|\]$/g, '');
+  if (!h) return false;
+  if (h.includes(':')) {
+    return /^[0-9a-f:.]+$/.test(h);
+  }
+  const parts = h.split('.');
+  if (parts.length === 4 && parts.every((p) => /^\d{1,3}$/.test(p))) {
+    return true;
+  }
+  return parts.length >= 2 && parts.every((p) => /^\d+$/.test(p));
+}
 
 /**
  * Extracts a clean lowercase hostname while stripping userinfo (`user:pass@`) BEFORE port (`:port`)
  * to prevent `https://google.com:443@evil.com/login` host-confusion attacks.
+ * Supports bracketed and bare IPv6 literals as well as IPv4 literals.
  */
 function extractNormalizedDomain(rawUrl) {
   if (!rawUrl || typeof rawUrl !== 'string') return '';
@@ -32,6 +63,21 @@ function extractNormalizedDomain(rawUrl) {
   const authorityPart = withoutScheme.split(/[/?#]/)[0] || '';
   const atIdx = authorityPart.lastIndexOf('@');
   const hostPort = atIdx >= 0 ? authorityPart.slice(atIdx + 1) : authorityPart;
+
+  if (hostPort.startsWith('[')) {
+    const endBracket = hostPort.indexOf(']');
+    if (endBracket > 1) {
+      const ipv6 = hostPort.slice(1, endBracket).trim();
+      return ipv6.includes(':') && /^[0-9a-f:.]+$/.test(ipv6) ? ipv6 : '';
+    }
+    return '';
+  }
+
+  const colonCount = (hostPort.match(/:/g) || []).length;
+  if (colonCount > 1 && /^[0-9a-f:.]+$/.test(hostPort)) {
+    return hostPort.trim();
+  }
+
   const host = hostPort
     .split(':')[0]
     .replace(/^www\./, '')
@@ -42,11 +88,21 @@ function extractNormalizedDomain(rawUrl) {
 }
 
 function getRegistrableDomain(host) {
-  const parts = String(host || '').toLowerCase().trim().split('.').filter(Boolean);
+  const clean = String(host || '').toLowerCase().trim().replace(/^\[|\]$/g, '');
+  if (!clean) return null;
+  if (isIpLiteral(clean)) return clean;
+
+  const parts = clean.split('.').filter(Boolean);
   if (parts.length < 2) return null;
 
-  const lastTwo = `${parts[parts.length - 2]}.${parts[parts.length - 1]}`;
-  if (COMPOUND_PUBLIC_SUFFIXES.has(lastTwo)) {
+  const tld = parts[parts.length - 1];
+  const sld = parts[parts.length - 2];
+  const lastTwo = `${sld}.${tld}`;
+  const isCompoundSuffix =
+    COMPOUND_PUBLIC_SUFFIXES.has(lastTwo) ||
+    (tld.length === 2 && /^[a-z]{2}$/.test(tld) && STANDARD_CCTLD_SLDS.has(sld));
+
+  if (isCompoundSuffix) {
     if (parts.length < 3) return null;
     return `${parts[parts.length - 3]}.${lastTwo}`;
   }
@@ -58,16 +114,23 @@ function areDomainsEquivalent(domainA, domainB) {
   const e = extractNormalizedDomain(domainB);
   if (!q || !e) return false;
   if (q === e) return true;
+  if (isIpLiteral(q) || isIpLiteral(e)) return false;
 
+  let matchedMt = null;
   for (const mt of MULTI_TENANT_SUFFIXES) {
     if (q === mt || e === mt || q.endsWith(`.${mt}`) || e.endsWith(`.${mt}`)) {
-      if (q === mt || e === mt) return false;
-      const minLenHost = q.length <= e.length ? q : e;
-      return (
-        (q.endsWith(`.${e}`) || e.endsWith(`.${q}`)) &&
-        minLenHost.split('.').length > mt.split('.').length
-      );
+      if (!matchedMt || mt.length > matchedMt.length) {
+        matchedMt = mt;
+      }
     }
+  }
+  if (matchedMt) {
+    if (q === matchedMt || e === matchedMt) return false;
+    const minLenHost = q.length <= e.length ? q : e;
+    return (
+      (q.endsWith(`.${e}`) || e.endsWith(`.${q}`)) &&
+      minLenHost.split('.').length > matchedMt.split('.').length
+    );
   }
 
   const qReg = getRegistrableDomain(q);

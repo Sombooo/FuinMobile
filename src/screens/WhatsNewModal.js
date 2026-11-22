@@ -73,7 +73,7 @@ export default function WhatsNewModal({ visible, onClose }) {
           <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
             <Feather name="zap" size={16} color={theme.accent} />
             <CustomText style={{ textAlign: 'center', color: theme.text, fontSize: 15, fontWeight: 'bold', letterSpacing: 1.5 }}>
-              {t('whatsNewModalTitle') || 'NELER YENİ?'}
+              {t('whatsNewModalTitle')}
             </CustomText>
           </View>
           <View style={{ width: 36 }} />
@@ -105,7 +105,7 @@ export default function WhatsNewModal({ visible, onClose }) {
                     color: isSelected ? theme.accent : theme.muted,
                     letterSpacing: 0.5,
                   }}>
-                    {entry.tag}{entry.isCurrent ? (isEn ? ' (Latest)' : ' (Güncel)') : ''}
+                    {entry.tag}{entry.isCurrent ? ` (${t('whatsNewLatestTag')})` : ''}
                   </CustomText>
                 </TouchableOpacity>
               );
@@ -240,7 +240,7 @@ export default function WhatsNewModal({ visible, onClose }) {
             }}
           >
             <CustomText style={{ color: theme.bg, fontSize: 14, fontWeight: 'bold', letterSpacing: 0.5 }}>
-              {t('whatsNewGotIt') || 'Harika, Anladım'}
+              {t('whatsNewGotIt')}
             </CustomText>
           </TouchableOpacity>
         </View>

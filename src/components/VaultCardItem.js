@@ -25,13 +25,14 @@ const VaultCardItem = React.memo(function VaultCardItem({
   const isCard = item.type === 'card';
   const isNote = item.type === 'note';
 
-  const visibleCardNumber = isCard ? resolveSecretDisplay(item.cardNumber) : '';
-  const visibleSecureNote = isNote ? resolveSecretDisplay(item.secureNote) : '';
+  // Decrypt card number / secure note lazily ONLY when explicitly revealed on screen
+  const visibleCardNumber = isCard && isPwVisible ? resolveSecretDisplay(item.cardNumber) : '';
+  const visibleSecureNote = isNote && isPwVisible ? resolveSecretDisplay(item.secureNote) : '';
 
-  // Format card number preview or decrypted value
-  const rawNum = visibleCardNumber ? String(visibleCardNumber).replace(/\D/g, '') : '';
-  const cardLast4 = item.cardLastFour || (rawNum ? rawNum.slice(-4) : '••••');
-  const cardBrand = item.cardBrand && item.cardBrand !== 'generic' ? item.cardBrand.toUpperCase() : '';
+  const cardLast4 = item.cardLastFour || '••••';
+  const cardBrand = typeof item.cardBrand === 'string' && item.cardBrand && item.cardBrand !== 'generic'
+    ? item.cardBrand.toUpperCase()
+    : '';
 
   return (
     <TouchableOpacity
@@ -103,7 +104,7 @@ const VaultCardItem = React.memo(function VaultCardItem({
               <TouchableOpacity
                 activeOpacity={0.6}
                 delayPressIn={0}
-                onPress={() => onCopy(visibleCardNumber, t('fieldCardNumber'), item, 30000)}
+                onPress={() => onCopy(item.cardNumber, t('fieldCardNumber'), item, 30000)}
                 style={localStyles.numberTouch}
               >
                 <CustomText
@@ -195,7 +196,7 @@ const VaultCardItem = React.memo(function VaultCardItem({
                 activeOpacity={0.7}
                 delayPressIn={0}
                 style={[localStyles.actionBtn, { borderColor: 'rgba(90, 154, 110, 0.35)', backgroundColor: 'rgba(90, 154, 110, 0.08)' }]}
-                onPress={() => onCopy(visibleSecureNote, t('fieldNote'), item, 45000)}
+                onPress={() => onCopy(item.secureNote, t('fieldNote'), item, 45000)}
               >
                 <Feather name="copy" size={11} color={theme.accent} />
                 <CustomText style={[localStyles.actionBtnText, { color: theme.accent }]}>{t('btnCopyNote')}</CustomText>

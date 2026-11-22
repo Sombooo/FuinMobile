@@ -79,13 +79,15 @@ class FuinAutofillService : AutofillService() {
 
             val pkgLower = parsed.packageName?.lowercase(Locale.ROOT)?.trim().orEmpty()
             val pinnedRecord = if (pkgLower.isNotEmpty()) snapshot.pinnedPackages[pkgLower] else null
-            val isUnpinnedNativeApp = pkgLower.isNotEmpty() &&
-                !AutofillStructureParser.isBrowserPackage(pkgLower) &&
+            val isVerifiedBrowser = pkgLower.isNotEmpty() &&
+                AutofillDomainMatcher.isVerifiedBrowserPackage(this, pkgLower)
+            val isUnpinnedApp = pkgLower.isNotEmpty() &&
+                !isVerifiedBrowser &&
                 (pinnedRecord == null || pinnedRecord.certSha256.isEmpty())
 
             if (matchingEntries.isNotEmpty()) {
                 for (entry in matchingEntries) {
-                    val requiresAuth = !snapshot.isSessionUnlocked || entry.reprompt || isUnpinnedNativeApp
+                    val requiresAuth = !snapshot.isSessionUnlocked || entry.reprompt || isUnpinnedApp
                     val title = entry.title.ifEmpty { entry.domain.ifEmpty { "Fuin" } }
                     val totpCode = if (totpField != null) AutofillTotpGenerator.generateCode(entry.totp) else null
 
@@ -114,7 +116,7 @@ class FuinAutofillService : AutofillService() {
                     } else {
                         val subtitle = when {
                             entry.reprompt -> "Doğrulama gerekli"
-                            isUnpinnedNativeApp -> "Uygulamayı doğrulamak için dokunun"
+                            isUnpinnedApp -> "Uygulamayı doğrulamak için dokunun"
                             else -> "Şifreyi doldurmak için dokunun"
                         }
                         val authIntent = createAuthIntent(

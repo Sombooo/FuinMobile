@@ -76,12 +76,12 @@ export default function useAppUpdater({ t, showAlert }) {
         setUpdateInfo(res.update);
         setBannerDismissed(false);
         setStatusMessage(
-          (t('updateAvailableMsg') || 'Yeni sürüm mevcut: v{version}').replace('{version}', res.update.version)
+          t('updateAvailableMsg').replace('{version}', res.update.version)
         );
       } else {
         setUpdateInfo(null);
         setStatusMessage(
-          (t('updateUpToDateMsg') || 'En güncel sürümü kullanıyorsunuz (v{version}).').replace(
+          t('updateUpToDateMsg').replace(
             '{version}',
             res.currentVersion || currentVersion
           )
@@ -89,7 +89,7 @@ export default function useAppUpdater({ t, showAlert }) {
       }
     } catch {
       if (mountedRef.current) {
-        setStatusMessage(t('updateCheckFailedMsg') || 'Kontrol edilemedi. İnternet bağlantısını kontrol edin.');
+        setStatusMessage(t('updateCheckFailedMsg'));
       }
     } finally {
       if (mountedRef.current) {
@@ -122,19 +122,18 @@ export default function useAppUpdater({ t, showAlert }) {
       if (!allowed) {
         pendingVerifiedPathRef.current = verifiedPath;
         showAlert(
-          t('updatePermTitle') || 'Kurulum İzni Gerekiyor',
-          t('updatePermBody') ||
-            'Güncelleme indirildi ve imzası doğrulandı. Kurulumu tamamlamak için açılan ekranda Fuin için "Bu kaynaktan izin ver" seçeneğini etkinleştirin.',
+          t('updatePermTitle'),
+          t('updatePermBody'),
           [
             {
-              text: t('btnCancel') || 'İptal',
+              text: t('btnCancel'),
               style: 'cancel',
               onPress: () => {
                 pendingVerifiedPathRef.current = null;
               },
             },
             {
-              text: t('updatePermBtn') || 'İzin Ver ve Kur',
+              text: t('updatePermBtn'),
               onPress: () => {
                 updateService.openInstallPermissionSettings();
               },
@@ -155,8 +154,8 @@ export default function useAppUpdater({ t, showAlert }) {
       showAlert(
         t('alertError'),
         isSecurityFailure
-          ? t('updateSecurityVerifyError') || 'Güvenlik doğrulaması başarısız oldu (imza veya özet uyuşmazlığı). Dosya silindi.'
-          : t('updateDownloadError') || 'Güncelleme indirilemedi. Lütfen bağlantınızı kontrol edip tekrar deneyin.'
+          ? t('updateSecurityVerifyError')
+          : t('updateDownloadError')
       );
     }
   }, [updateInfo, downloading, verifying, t, showAlert]);

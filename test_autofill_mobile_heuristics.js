@@ -252,7 +252,7 @@ check('8. Reverse-domain owner blocks com.randomdev.spotifydownloader and untrus
     if (parts.length < 2) return null;
     if (REV_COMPOUND.has(`${parts[0]}.${parts[1]}`)) return parts[2] || null;
     if (TLDS.has(parts[0])) return parts[1];
-    return parts[0];
+    return null;
   }
 
   function resolveTrustedWebDomain(pkg, rawDomain) {
@@ -265,6 +265,7 @@ check('8. Reverse-domain owner blocks com.randomdev.spotifydownloader and untrus
   assert.strictEqual(extractReverseDomainOwner('com.google.android.youtube'), 'youtube');
   assert.strictEqual(extractReverseDomainOwner('com.randomdev.spotifydownloader'), 'randomdev');
   assert.strictEqual(extractReverseDomainOwner('com.netflix.mediaclient'), 'netflix');
+  assert.strictEqual(extractReverseDomainOwner('spotify.helper.app'), null, 'Unknown first segment must fail closed (MOB-05)');
 
   // ANY non-browser app spoofing or setting webDomain -> strictly null (isolated to androidapp:// namespace)!
   assert.strictEqual(resolveTrustedWebDomain('com.evil.flashlight', 'accounts.google.com'), null);
@@ -288,6 +289,178 @@ check('9. useAutofillSync hook, two-phase peek/ack JS service, and lean App.js i
   const appSrc = fs.readFileSync(path.join(ROOT, 'App.js'), 'utf8');
   assert.ok(appSrc.includes('useAutofillSync('), 'App.js must delegate autofill sync to useAutofillSync');
   assert.ok(!appSrc.includes('itemUrl.includes(savedDomain)'), 'Legacy substring collision bug must be gone from App.js');
+});
+
+// 10. MOB-01: Strict BIOMETRIC_STRONG + Keystore CryptoObject (Zero DEVICE_CREDENTIAL / BIOMETRIC_WEAK Fallback)
+check('10. MOB-01: AutofillAuthActivity requires BIOMETRIC_STRONG with Keystore CryptoObject and no DEVICE_CREDENTIAL', () => {
+  const authSrc = fs.readFileSync(path.join(ROOT, 'plugins/android/java/AutofillAuthActivity.kt'), 'utf8');
+  const storeSrc = fs.readFileSync(path.join(ROOT, 'plugins/android/java/AutofillSecureStore.kt'), 'utf8');
+
+  assert.ok(authSrc.includes('BiometricManager.Authenticators.BIOMETRIC_STRONG'), 'Must enforce BIOMETRIC_STRONG');
+  assert.ok(!authSrc.includes('DEVICE_CREDENTIAL'), 'DEVICE_CREDENTIAL fallback must be completely removed');
+  assert.ok(!authSrc.includes('BIOMETRIC_WEAK'), 'BIOMETRIC_WEAK fallback must be completely removed');
+  assert.ok(authSrc.includes('setNegativeButtonText('), 'BIOMETRIC_STRONG PromptInfo must set negative Cancel button');
+  assert.ok(authSrc.includes('BiometricPrompt.CryptoObject('), 'Must bind BiometricPrompt to a Keystore CryptoObject');
+  assert.ok(authSrc.includes('biometricPrompt.authenticate(promptInfo, cryptoObject)'), 'Must pass cryptoObject to BiometricPrompt.authenticate');
+  assert.ok(authSrc.includes('verifyBiometricAuthCipher('), 'Must cryptographically verify authenticated CryptoObject cipher');
+  assert.ok(authSrc.includes('FLAG_SECURE'), 'AutofillAuthActivity must preserve FLAG_SECURE');
+
+  assert.ok(storeSrc.includes('setUserAuthenticationRequired(true)'), 'Auth-bound Keystore key must require user authentication');
+  assert.ok(storeSrc.includes('setInvalidatedByBiometricEnrollment(true)'), 'Auth-bound Keystore key must invalidate on new biometric enrollment');
+  assert.ok(storeSrc.includes('AUTH_BIOMETRIC_STRONG'), 'API 30+ auth-bound key must require AUTH_BIOMETRIC_STRONG');
+  assert.ok(storeSrc.includes('KeyPermanentlyInvalidatedException'), 'Must catch KeyPermanentlyInvalidatedException and fail closed');
+  assert.ok(storeSrc.includes('createBiometricAuthCipher('), 'AutofillSecureStore must expose createBiometricAuthCipher');
+});
+
+// 11. MOB-02: Browser APK Signing-Certificate Verification & Unverified Browser TOFU Gating
+check('11. MOB-02: Browser packages require official cert match or TOFU pinning + package disclosure before webDomain fill', () => {
+  const matcherSrc = fs.readFileSync(path.join(ROOT, 'plugins/android/java/AutofillDomainMatcher.kt'), 'utf8');
+  const serviceSrc = fs.readFileSync(path.join(ROOT, 'plugins/android/java/FuinAutofillService.kt'), 'utf8');
+  const authSrc = fs.readFileSync(path.join(ROOT, 'plugins/android/java/AutofillAuthActivity.kt'), 'utf8');
+  const storeSrc = fs.readFileSync(path.join(ROOT, 'plugins/android/java/AutofillSecureStore.kt'), 'utf8');
+
+  assert.ok(matcherSrc.includes('TRUSTED_BROWSER_CERT_SHA256'), 'Matcher must define official browser SHA-256 certificate map');
+  assert.ok(matcherSrc.includes('"com.android.chrome"') && matcherSrc.includes('f0fd6c5b410f25cb25c3b53346c8972fae30f8ee7411df910480ad6b2d60db83'), 'Must include official Chrome signing cert');
+  assert.ok(matcherSrc.includes('"org.mozilla.firefox"') && matcherSrc.includes('a78b62a5165b4494b2fead9e76a280d22d937fee6251aece599446b2ea319b04'), 'Must include official Firefox signing cert');
+  assert.ok(matcherSrc.includes('fun isVerifiedBrowserPackage('), 'Matcher must expose isVerifiedBrowserPackage');
+  assert.ok(matcherSrc.includes('fun isKnownBrowserCertMismatch('), 'Matcher must detect known browser cert mismatch (impostor APKs)');
+
+  // Verify findMatches checks cert / TOFU BEFORE returning matchEntriesByDomain for browsers
+  const findMatchesBlock = matcherSrc.slice(matcherSrc.indexOf('fun findMatches('));
+  const certIdx = findMatchesBlock.indexOf('getApkSignatureSha256(context, pkgLower)');
+  const browserMatchIdx = findMatchesBlock.indexOf('return matchEntriesByDomain(entries, trustedDomain)');
+  assert.ok(certIdx > 0 && browserMatchIdx > certIdx, 'findMatches must verify APK cert / TOFU BEFORE returning browser domain matches');
+
+  // Verify service, auth activity, and secure store gate TOFU/disclosure on isVerifiedBrowserPackage (NOT raw isBrowserPackage)
+  assert.ok(serviceSrc.includes('isVerifiedBrowserPackage(this, pkgLower)'), 'FuinAutofillService must gate unpinned check on isVerifiedBrowserPackage');
+  assert.ok(!serviceSrc.includes('!AutofillStructureParser.isBrowserPackage(pkgLower)'), 'FuinAutofillService must not blindly exempt raw BROWSER_PACKAGES');
+  assert.ok(authSrc.includes('!AutofillDomainMatcher.isVerifiedBrowserPackage(this, pkg)'), 'AutofillAuthActivity must disclose target package for unverified browsers');
+  assert.ok(!authSrc.includes('!AutofillStructureParser.isBrowserPackage(pkg)'), 'AutofillAuthActivity must not hide package name for unverified browsers');
+  assert.ok(storeSrc.includes('isVerifiedBrowserPackage(context, pkgLower, liveCert)'), 'AutofillSecureStore must only skip TOFU pinning for cert-verified browsers');
+  assert.ok(storeSrc.includes('isKnownBrowserCertMismatch(context, pkgLower, liveCert)'), 'AutofillSecureStore must reject impostor browser certs');
+});
+
+// 12. MOB-04: IPv4/IPv6 Exact Match, Generic Compound ccTLDs, & Expanded Multi-Tenant Isolation
+check('12. MOB-04: AutofillDomainMatcher enforces IPv4/IPv6 exact match, generic compound ccTLDs, and expanded multi-tenant isolation', () => {
+  const matcherSrc = fs.readFileSync(path.join(ROOT, 'plugins/android/java/AutofillDomainMatcher.kt'), 'utf8');
+
+  assert.ok(matcherSrc.includes('fun isIpAddressLiteral('), 'Matcher must detect IPv4/IPv6 literals');
+  assert.ok(matcherSrc.includes('COMPOUND_CCTLD_SLDS'), 'Matcher must recognize compound ccTLDs generically via standard SLDs');
+  assert.ok(matcherSrc.includes('last.length == 2'), 'Generic compound ccTLD check must verify 2-char ccTLD');
+
+  const requiredMultiTenant = [
+    'github.io', 'pages.dev', 'vercel.app', 'netlify.app', 'gitlab.io',
+    'herokuapp.com', 'firebaseapp.com', 'fly.dev', 'render.com', 'onrender.com',
+    'workers.dev', 'web.app', 'azurewebsites.net', 'cloudfront.net', 'railway.app',
+    'up.railway.app', 'deno.dev', 'appspot.com', 'surge.sh', 'amplifyapp.com',
+    'elasticbeanstalk.com', 's3.amazonaws.com', 'fastly.net', 'b-cdn.net',
+    'ngrok-free.app', 'ngrok.io', 'glitch.me', 'myshopify.com', '000webhostapp.com',
+    'pipedream.net', 'pantheonsite.io', 'wixsite.com', 'ghost.io', 'substack.com',
+    'azureedge.net', 'trafficmanager.net', 'blob.core.windows.net', 'wordpress.com',
+    'blogspot.com', 'tumblr.com', 'itch.io', 'notion.site', 'webflow.io',
+    'replit.app', 'run.app', 'hf.space', 'trycloudflare.com', 'pythonanywhere.com',
+  ];
+  for (const suffix of requiredMultiTenant) {
+    assert.ok(matcherSrc.includes(`"${suffix}"`), `MULTI_TENANT_SUFFIXES must include ${suffix}`);
+  }
+
+  const requiredSlds = [
+    'co', 'com', 'net', 'org', 'gov', 'edu', 'ac', 'or', 'ne', 'go', 'gob',
+    'mil', 'biz', 'info', 'gen', 'web', 'nom', 'bel', 'pol', 'k12', 'av',
+    'dr', 'bbs', 'tsk', 'kep', 'me', 'firm', 'ind',
+  ];
+  const sldBlock = matcherSrc.slice(
+    matcherSrc.indexOf('private val COMPOUND_CCTLD_SLDS'),
+    matcherSrc.indexOf('private val REVERSED_COMPOUND_TLDS')
+  );
+  for (const sld of requiredSlds) {
+    assert.ok(sldBlock.includes(`"${sld}"`), `COMPOUND_CCTLD_SLDS must include ${sld}`);
+  }
+
+  // Behavioral mirror of Kotlin getRegistrableDomain + isDomainMatch for MOB-04
+  const SLDS = new Set(requiredSlds);
+  const MT = [...requiredMultiTenant].sort((a, b) => b.length - a.length);
+  const stripBrackets = (h) => {
+    const s = String(h || '').toLowerCase().trim().replace(/\.+$/, '');
+    return s.startsWith('[') && s.endsWith(']') ? s.slice(1, -1) : s;
+  };
+  const isIp = (h) => {
+    const c = stripBrackets(h);
+    if (!c) return false;
+    if (c.includes(':')) return /^[0-9a-f:.]+$/.test(c);
+    const p = c.split('.');
+    return p.length === 4 && p.every((x) => /^\d+$/.test(x));
+  };
+  const getReg = (host) => {
+    const c = stripBrackets(host);
+    if (!c) return null;
+    if (isIp(c)) return c;
+    const parts = c.split('.').filter(Boolean);
+    if (parts.length < 2) return null;
+    for (const mt of MT) {
+      if (c.endsWith(`.${mt}`)) {
+        const mtLen = mt.split('.').length;
+        return parts.length > mtLen ? parts.slice(-(mtLen + 1)).join('.') : null;
+      }
+    }
+    const last = parts[parts.length - 1];
+    const secondLast = parts[parts.length - 2];
+    if (last.length === 2 && /^[a-z]{2}$/.test(last) && SLDS.has(secondLast)) {
+      return parts.length >= 3 ? parts.slice(-3).join('.') : null;
+    }
+    return `${secondLast}.${last}`;
+  };
+
+  assert.strictEqual(getReg('192.168.1.1'), '192.168.1.1');
+  assert.notStrictEqual(getReg('192.168.1.1'), getReg('45.33.1.1'), 'IPv4 addresses must never collide via tail octets');
+  assert.strictEqual(getReg('[2001:db8::1]'), '2001:db8::1');
+  assert.notStrictEqual(getReg('bank.co.kr'), getReg('evil.co.kr'));
+  assert.notStrictEqual(getReg('dbs.com.sg'), getReg('attacker.com.sg'));
+  assert.strictEqual(getReg('sub.dbs.com.sg'), getReg('dbs.com.sg'));
+  assert.notStrictEqual(getReg('alice.wordpress.com'), getReg('bob.wordpress.com'));
+  assert.notStrictEqual(getReg('svc1.run.app'), getReg('svc2.run.app'));
+});
+
+// 13. MOB-05: No Unknown Reverse-Domain Fallback, No Multi-Tenant Brand Label, No Title-Only Fallback
+check('13. MOB-05: AutofillDomainMatcher eliminates unknown parts[0], multi-tenant brand label, and title-only fallback', () => {
+  const matcherSrc = fs.readFileSync(path.join(ROOT, 'plugins/android/java/AutofillDomainMatcher.kt'), 'utf8');
+
+  assert.ok(!matcherSrc.includes('return parts[0].takeIf'), 'extractReverseDomainOwner must return null instead of parts[0] fallback');
+  assert.ok(!matcherSrc.includes('entry.title.isNotBlank()'), 'Step 2c title-only fallback must be removed');
+  assert.ok(!matcherSrc.includes('foldTurkishAscii'), 'Unused title-folding helper must be removed');
+
+  const brandBlock = matcherSrc.slice(
+    matcherSrc.indexOf('fun getRegistrableBrandLabel('),
+    matcherSrc.indexOf('fun isVerifiedBrowserPackage(')
+  );
+  assert.ok(brandBlock.includes('MULTI_TENANT_SUFFIXES'), 'getRegistrableBrandLabel must return null for MULTI_TENANT_SUFFIXES');
+  assert.ok(brandBlock.includes('isIpAddressLiteral'), 'getRegistrableBrandLabel must return null for IP literals');
+});
+
+// 14. MOB-08: Zero-Cloud android:allowBackup="false" in Manifest & Prebuild Plugin
+check('14. MOB-08: AndroidManifest.xml and withAndroidAutofill.js enforce android:allowBackup="false"', () => {
+  const manifest = fs.readFileSync(path.join(ROOT, 'android/app/src/main/AndroidManifest.xml'), 'utf8');
+  const plugin = fs.readFileSync(path.join(ROOT, 'plugins/withAndroidAutofill.js'), 'utf8');
+
+  assert.ok(manifest.includes('android:allowBackup="false"'), 'AndroidManifest.xml must set android:allowBackup="false"');
+  assert.ok(!manifest.includes('android:allowBackup="true"'), 'AndroidManifest.xml must NOT have android:allowBackup="true"');
+  assert.ok(plugin.includes("['android:allowBackup'] = 'false'"), 'withAndroidAutofill.js must preserve android:allowBackup="false" on prebuild');
+});
+
+// 15. MOB-NV-02: Synchronous FLAG_SECURE in MainActivity.onCreate & Prebuild Plugin
+check('15. MOB-NV-02: MainActivity.kt and withAndroidAutofill.js enforce synchronous FLAG_SECURE in onCreate', () => {
+  const mainAct = fs.readFileSync(path.join(ROOT, 'android/app/src/main/java/com/sombooosteam/fuin/MainActivity.kt'), 'utf8');
+  const plugin = fs.readFileSync(path.join(ROOT, 'plugins/withAndroidAutofill.js'), 'utf8');
+
+  assert.ok(mainAct.includes('import android.view.WindowManager'), 'MainActivity.kt must import android.view.WindowManager');
+  assert.ok(
+    mainAct.includes('window.setFlags(') && mainAct.includes('WindowManager.LayoutParams.FLAG_SECURE'),
+    'MainActivity.onCreate must set FLAG_SECURE synchronously'
+  );
+  assert.ok(
+    plugin.includes('MainActivity.kt') && plugin.includes('WindowManager.LayoutParams.FLAG_SECURE'),
+    'withAndroidAutofill.js must preserve synchronous FLAG_SECURE in MainActivity.kt on prebuild'
+  );
 });
 
 console.log('\n═══════════════════════════════════════════════════════════════════');

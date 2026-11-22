@@ -7,35 +7,75 @@ import crypto from 'react-native-quick-crypto';
 export const LAN_SYNC_AAD = Buffer.from('FUIN_LAN_SYNC_V1_PROTOCOL', 'utf8');
 
 /**
- * Verifies if an IPv4/IPv6 address belongs strictly to local private networks (RFC 1918 / loopback / link-local).
- * Prevents SSRF / vault exfiltration via crafted QR codes pointing to public internet hosts.
+ * Verifies if an IP address is a strict canonical dotted-decimal IPv4 address belonging
+ * exclusively to local private networks (RFC 1918) or loopback (127/8).
+ * Rejects leading-zero octets, IPv6/userinfo/hostname tricks, and public IPs to prevent SSRF.
  */
 export function isRFC1918OrLoopback(ip) {
   if (!ip || typeof ip !== 'string') return false;
-  let cleanIp = ip.trim();
-
-  if (cleanIp.startsWith('::ffff:')) {
-    cleanIp = cleanIp.slice(7);
-  }
-
-  const lower = cleanIp.toLowerCase();
-  if (lower === '::1' || lower === 'localhost') return true;
-  if (lower.startsWith('fe80:')) return true;
-  if ((lower.startsWith('fc') || lower.startsWith('fd')) && lower.includes(':')) return true;
+  const cleanIp = ip.trim();
+  if (!cleanIp || cleanIp !== ip) return false;
 
   const parts = cleanIp.split('.');
-  if (parts.length !== 4 || parts.some(p => !/^\d+$/.test(p) || parseInt(p, 10) < 0 || parseInt(p, 10) > 255)) {
-    return false;
+  if (parts.length !== 4) return false;
+
+  const octets = [];
+  for (const part of parts) {
+    if (!/^(?:0|[1-9]\d{0,2})$/.test(part)) return false;
+    const num = Number(part);
+    if (!Number.isInteger(num) || num < 0 || num > 255) return false;
+    octets.push(num);
   }
 
-  const [a, b] = parts.map(p => parseInt(p, 10));
+  const [a, b] = octets;
   if (a === 127) return true;
   if (a === 10) return true;
   if (a === 172 && b >= 16 && b <= 31) return true;
   if (a === 192 && b === 168) return true;
-  if (a === 169 && b === 254) return true;
 
   return false;
+}
+
+/**
+ * Validates and constructs a strict local-network HTTP URL for `/sync` or `/pair`.
+ * Enforces canonical IPv4 hostname match, empty userinfo, and unprivileged port 1024..65535.
+ */
+export function buildLanTargetUrl(ip, port, endpoint) {
+  if (typeof ip !== 'string') {
+    throw new Error('Güvenlik hatası: Geçersiz yerel ağ IP adresi.');
+  }
+  const cleanIp = ip.trim();
+  if (!isRFC1918OrLoopback(cleanIp)) {
+    throw new Error('Güvenlik hatası: Hedef adres yerel ağ (RFC1918) IPv4 adresi değil.');
+  }
+  const parsedPort = Number(port);
+  if (!Number.isInteger(parsedPort) || parsedPort < 1024 || parsedPort > 65535) {
+    throw new Error('Güvenlik hatası: Geçersiz yerel ağ port numarası (1024-65535).');
+  }
+  if (endpoint !== '/sync' && endpoint !== '/pair') {
+    throw new Error('Güvenlik hatası: Geçersiz senkronizasyon uç noktası.');
+  }
+
+  const rawUrl = `http://${cleanIp}:${parsedPort}${endpoint}`;
+  let parsed;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new Error('Güvenlik hatası: Geçersiz yerel ağ URL biçimi.');
+  }
+
+  if (
+    parsed.protocol !== 'http:' ||
+    parsed.username !== '' ||
+    parsed.password !== '' ||
+    parsed.hostname !== cleanIp ||
+    parsed.port !== String(parsedPort) ||
+    parsed.pathname !== endpoint
+  ) {
+    throw new Error('Güvenlik hatası: Yerel ağ URL doğrulaması başarısız.');
+  }
+
+  return parsed.toString();
 }
 
 export async function savePairingInfo({ deviceId, pairKey, port, addresses }) {
@@ -45,12 +85,15 @@ export async function savePairingInfo({ deviceId, pairKey, port, addresses }) {
     }
   }
   const parsedPort = port !== undefined ? Number(port) : 8765;
-  if (!Number.isInteger(parsedPort) || parsedPort < 1 || parsedPort > 65535) {
+  if (!Number.isInteger(parsedPort) || parsedPort < 1024 || parsedPort > 65535) {
     throw new Error('Geçersiz yerel ağ port numarası.');
   }
   let validAddresses = [];
   if (Array.isArray(addresses) && addresses.length > 0) {
-    validAddresses = addresses.filter(ip => isRFC1918OrLoopback(ip)).slice(0, 16);
+    validAddresses = addresses
+      .map(ip => (typeof ip === 'string' ? ip.trim() : ''))
+      .filter(ip => isRFC1918OrLoopback(ip))
+      .slice(0, 16);
     if (validAddresses.length === 0) {
       throw new Error('Güvenlik hatası: QR kodundaki adres yerel ağ (RFC1918) adresi değil.');
     }
@@ -58,7 +101,7 @@ export async function savePairingInfo({ deviceId, pairKey, port, addresses }) {
 
   if (deviceId) await SecureStore.setItemAsync('fuin_lan_paired_device', String(deviceId).trim().slice(0, 128));
   if (pairKey) await SecureStore.setItemAsync('fuin_lan_pair_key', pairKey);
-  if (port) await SecureStore.setItemAsync('fuin_lan_port', String(parsedPort));
+  if (port !== undefined) await SecureStore.setItemAsync('fuin_lan_port', String(parsedPort));
   if (validAddresses.length > 0) {
     await SecureStore.setItemAsync('fuin_lan_addresses', JSON.stringify(validAddresses));
   }
@@ -72,7 +115,9 @@ export async function getPairingInfo() {
   let addresses = [];
   try { if (addrsStr) addresses = JSON.parse(addrsStr); } catch {}
   if (Array.isArray(addresses)) {
-    addresses = addresses.filter(ip => isRFC1918OrLoopback(ip));
+    addresses = addresses
+      .map(ip => (typeof ip === 'string' ? ip.trim() : ''))
+      .filter(ip => isRFC1918OrLoopback(ip));
   } else {
     addresses = [];
   }
@@ -82,7 +127,7 @@ export async function getPairingInfo() {
   return {
     deviceId,
     pairKey,
-    port: (Number.isInteger(parsedPort) && parsedPort >= 1 && parsedPort <= 65535) ? parsedPort : 8765,
+    port: (Number.isInteger(parsedPort) && parsedPort >= 1024 && parsedPort <= 65535) ? parsedPort : 8765,
     addresses
   };
 }
@@ -175,7 +220,9 @@ export async function performLanSync(vaultData) {
     const mobileDeviceId = await getMobileDeviceId();
 
     const rawIps = pairing.addresses && pairing.addresses.length > 0 ? pairing.addresses : ['192.168.1.100'];
-    const candidateIps = rawIps.filter(ip => isRFC1918OrLoopback(ip));
+    const candidateIps = rawIps
+      .map(ip => (typeof ip === 'string' ? ip.trim() : ''))
+      .filter(ip => isRFC1918OrLoopback(ip));
     if (candidateIps.length === 0) {
       throw new Error('Güvenlik hatası: Geçerli bir yerel ağ (RFC1918) IP adresi bulunamadı.');
     }
@@ -185,7 +232,7 @@ export async function performLanSync(vaultData) {
     for (const ip of candidateIps) {
       let timer = null;
       try {
-        const url = `http://${ip}:${pairing.port}/sync`;
+        const url = buildLanTargetUrl(ip, pairing.port, '/sync');
         const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
         if (controller) {
           timer = setTimeout(() => controller.abort(), 3500);
@@ -194,6 +241,7 @@ export async function performLanSync(vaultData) {
         const res = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          redirect: 'error',
           body: JSON.stringify({
             deviceId: pairing.deviceId,
             mobileDeviceId,
@@ -205,6 +253,10 @@ export async function performLanSync(vaultData) {
         });
 
         if (timer) clearTimeout(timer);
+
+        if (res.redirected || (res.status >= 300 && res.status < 400)) {
+          throw new Error('Güvenlik hatası: Yerel ağ senkronizasyonunda HTTP yönlendirmesi engellendi.');
+        }
 
         if (!res.ok) {
           const errJson = await res.json().catch(() => ({}));
@@ -274,7 +326,9 @@ export async function sendPairRequest(pairing) {
   if (typeof pairing.pairKey !== 'string' || !/^[0-9a-fA-F]{64}$/.test(pairing.pairKey)) return null;
   const mobileDeviceId = await getMobileDeviceId();
   const rawIps = pairing.addresses && pairing.addresses.length > 0 ? pairing.addresses : ['192.168.1.100'];
-  const candidateIps = rawIps.filter(ip => isRFC1918OrLoopback(ip));
+  const candidateIps = rawIps
+    .map(ip => (typeof ip === 'string' ? ip.trim() : ''))
+    .filter(ip => isRFC1918OrLoopback(ip));
   if (candidateIps.length === 0) return null;
 
   const pairKeyBuf = Buffer.from(pairing.pairKey, 'hex');
@@ -290,7 +344,7 @@ export async function sendPairRequest(pairing) {
     for (const ip of candidateIps) {
       let timer = null;
       try {
-        const url = `http://${ip}:${pairing.port}/pair`;
+        const url = buildLanTargetUrl(ip, pairing.port, '/pair');
         const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
         if (controller) {
           timer = setTimeout(() => controller.abort(), 2000);
@@ -298,6 +352,7 @@ export async function sendPairRequest(pairing) {
         const res = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          redirect: 'error',
           body: JSON.stringify({
             deviceId: mobileDeviceId,
             deviceName: 'Mobil Cihaz',
@@ -307,6 +362,9 @@ export async function sendPairRequest(pairing) {
           signal: controller ? controller.signal : undefined
         });
         if (timer) clearTimeout(timer);
+        if (res.redirected || (res.status >= 300 && res.status < 400)) {
+          continue;
+        }
         if (res.ok) {
           const resJson = await res.json();
           if (

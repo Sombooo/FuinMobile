@@ -2,15 +2,24 @@ import React, { createContext, useContext, useState, useCallback, useRef, useEff
 import { View, Modal, TouchableOpacity, Platform, StatusBar, Animated } from 'react-native';
 import CustomText from './CustomText';
 import { useTheme } from '../theme';
+import { useI18n } from '../i18n';
 
 const AlertContext = createContext();
 
+function matchesAnyTitle(title, candidates) {
+  if (typeof title !== 'string' || !title) return false;
+  const lower = title.toLowerCase();
+  return candidates.some((c) => typeof c === 'string' && c.length > 0 && lower.includes(c.toLowerCase()));
+}
+
 export function AlertProvider({ children }) {
   const [alertConfig, setAlertConfig] = useState(null);
+  const i18n = useI18n();
+  const t = i18n?.t || ((k) => k);
 
   const showAlert = useCallback((title, message, buttons) => {
-    setAlertConfig({ title, message, buttons: buttons || [{ text: 'OK' }] });
-  }, []);
+    setAlertConfig({ title, message, buttons: buttons || [{ text: t('btnOk') }] });
+  }, [t]);
 
   const dismiss = useCallback(() => {
     setAlertConfig(null);
@@ -32,6 +41,8 @@ export function useAlert() {
 
 function AlertModal({ config, onDismiss }) {
   const { theme } = useTheme();
+  const i18n = useI18n();
+  const t = i18n?.t || ((k) => k);
   const { title, message, buttons } = config;
   const scaleAnim = useRef(new Animated.Value(0.92)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
@@ -52,9 +63,28 @@ function AlertModal({ config, onDismiss }) {
     ]).start();
   }, []);
 
-  // Determine alert type from title content for styling
-  const isError = title?.includes('⚠') || title?.includes('Hata') || title?.includes('Error') || title?.includes('Dikkat') || title?.includes('Warning');
-  const isSuccess = title?.includes('Başarılı') || title?.includes('Success') || title?.includes('Kopyalandı') || title?.includes('Copied') || title?.includes('Kaydedildi') || title?.includes('Saved');
+  // Determine alert type from localized and English title tokens for styling
+  const isError = matchesAnyTitle(title, [
+    '⚠',
+    t('alertError'),
+    t('alertWarning'),
+    t('syncErrorTitle'),
+    t('criticalErrorTitle'),
+    'Error',
+    'Warning',
+    'Failed',
+  ]);
+  const isSuccess = !isError && matchesAnyTitle(title, [
+    t('alertSuccess'),
+    t('alertCopied'),
+    t('alertSaved'),
+    t('syncLanSuccessTitle'),
+    t('pairingSuccessTitle'),
+    t('recoverySuccessTitle'),
+    'Success',
+    'Copied',
+    'Saved',
+  ]);
   
   const accentColor = isError ? (theme.red || '#E55050') : isSuccess ? (theme.green || '#5A9A6E') : theme.accent;
 
@@ -166,6 +196,7 @@ function AlertModal({ config, onDismiss }) {
                         }}
                         onPress={() => handlePress(btn)}
                         activeOpacity={0.7}
+                        delayPressIn={0}
                       >
                         <CustomText style={{
                           color: textColor,

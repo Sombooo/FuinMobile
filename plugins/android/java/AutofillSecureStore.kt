@@ -1,7 +1,9 @@
 package com.sombooosteam.fuin
 
 import android.content.Context
+import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import org.json.JSONArray
@@ -53,6 +55,7 @@ object AutofillSecureStore {
     private const val LEGACY_KEY_PENDING = "pending_saves_enc"
 
     private const val KEYSTORE_ALIAS = "fuin_autofill_aes256_gcm_v1"
+    private const val AUTH_KEYSTORE_ALIAS = "fuin_autofill_biometric_auth_v1"
     private const val ANDROID_KEYSTORE = "AndroidKeyStore"
     private const val AES_GCM_TRANSFORMATION = "AES/GCM/NoPadding"
     private const val GCM_TAG_BITS = 128
@@ -85,6 +88,96 @@ object AutofillSecureStore {
             keyGenerator.generateKey()
         } catch (_: Exception) {
             null
+        }
+    }
+
+    private fun generateBiometricAuthKey(): SecretKey? {
+        return try {
+            val keyGenerator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
+            val builder = KeyGenParameterSpec.Builder(
+                AUTH_KEYSTORE_ALIAS,
+                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+            )
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setRandomizedEncryptionRequired(true)
+                .setKeySize(256)
+                .setUserAuthenticationRequired(true)
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                builder.setUserAuthenticationParameters(0, KeyProperties.AUTH_BIOMETRIC_STRONG)
+            } else {
+                @Suppress("DEPRECATION")
+                builder.setUserAuthenticationValidityDurationSeconds(-1)
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                builder.setInvalidatedByBiometricEnrollment(true)
+            }
+
+            keyGenerator.init(builder.build())
+            keyGenerator.generateKey()
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Ensures the BIOMETRIC_STRONG auth-bound Keystore key exists and is valid.
+     * Invoked when the main Fuin app is unlocked and syncs entries so newly enrolled biometrics
+     * cannot silently reset an invalidated key from AutofillAuthActivity.
+     */
+    @Synchronized
+    fun ensureBiometricAuthKey(): Boolean {
+        return try {
+            val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+            val existing = (keyStore.getEntry(AUTH_KEYSTORE_ALIAS, null) as? KeyStore.SecretKeyEntry)?.secretKey
+            if (existing != null) {
+                try {
+                    val checkCipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
+                    checkCipher.init(Cipher.ENCRYPT_MODE, existing)
+                    return true
+                } catch (_: KeyPermanentlyInvalidatedException) {
+                    keyStore.deleteEntry(AUTH_KEYSTORE_ALIAS)
+                }
+            }
+            generateBiometricAuthKey() != null
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Creates an initialized Cipher bound to the BIOMETRIC_STRONG AndroidKeyStore key for BiometricPrompt.CryptoObject.
+     * Fails closed (returns null) if strong hardware biometrics are unavailable or if the key was
+     * permanently invalidated by biometric enrollment changes.
+     */
+    @Synchronized
+    fun createBiometricAuthCipher(): Cipher? {
+        return try {
+            val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+            val existing = (keyStore.getEntry(AUTH_KEYSTORE_ALIAS, null) as? KeyStore.SecretKeyEntry)?.secretKey
+            val secretKey = existing ?: generateBiometricAuthKey() ?: return null
+            val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
+            cipher.init(Cipher.ENCRYPT_MODE, secretKey)
+            cipher
+        } catch (_: KeyPermanentlyInvalidatedException) {
+            null
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Cryptographically verifies that the authenticated CryptoObject cipher was unlocked by AndroidKeyStore.
+     */
+    fun verifyBiometricAuthCipher(cipher: Cipher?): Boolean {
+        if (cipher == null) return false
+        return try {
+            val out = cipher.doFinal("fuin-autofill-auth".toByteArray(Charsets.UTF_8))
+            out != null && out.isNotEmpty()
+        } catch (_: Exception) {
+            false
         }
     }
 
@@ -213,6 +306,7 @@ object AutofillSecureStore {
         root.put("timeoutMs", clampedTimeout)
         root.put("entries", entriesArray)
         writeRootState(context, root)
+        ensureBiometricAuthKey()
     }
 
     /**
@@ -262,11 +356,19 @@ object AutofillSecureStore {
             context.deleteSharedPreferences(LEGACY_PREFS_NAME)
         } catch (_: Exception) {
         }
+        try {
+            val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+            if (keyStore.containsAlias(AUTH_KEYSTORE_ALIAS)) {
+                keyStore.deleteEntry(AUTH_KEYSTORE_ALIAS)
+            }
+        } catch (_: Exception) {
+        }
     }
 
     /**
      * Pins an APK's SHA-256 signing certificate on verified fill or manual picker selection (TOFU).
-     * Returns false if the package was previously pinned with a different signing certificate.
+     * Skips TOFU pinning ONLY for officially certificate-verified browsers; all native apps and
+     * unverified browser packages are pinned and fail closed on certificate mismatch.
      */
     @Synchronized
     fun recordVerifiedPackageFill(
@@ -276,11 +378,21 @@ object AutofillSecureStore {
     ): Boolean {
         if (packageName.isNullOrBlank()) return true
         val pkgLower = packageName.lowercase(Locale.ROOT).trim()
-        if (AutofillStructureParser.isBrowserPackage(pkgLower) || AutofillStructureParser.isBlockedPackage(pkgLower)) {
+        if (AutofillStructureParser.isBlockedPackage(pkgLower)) {
             return true
         }
 
         val liveCert = AutofillDomainMatcher.getApkSignatureSha256(context, pkgLower)
+        if (AutofillDomainMatcher.isVerifiedBrowserPackage(context, pkgLower, liveCert)) {
+            return true
+        }
+        if (AutofillDomainMatcher.isKnownBrowserCertMismatch(context, pkgLower, liveCert)) {
+            return false
+        }
+        if (AutofillStructureParser.isBrowserPackage(pkgLower) && liveCert.isNullOrEmpty()) {
+            return false
+        }
+
         val root = readRootState(context)
         val pinnedMap = parsePinnedPackages(root.optJSONObject("pinnedPackages")).toMutableMap()
         val existing = pinnedMap[pkgLower]
@@ -326,6 +438,14 @@ object AutofillSecureStore {
 
         val pkgLower = packageName?.lowercase(Locale.ROOT)?.trim().orEmpty()
         val isBrowser = AutofillStructureParser.isBrowserPackage(pkgLower)
+        val liveCert = if (pkgLower.isNotEmpty()) AutofillDomainMatcher.getApkSignatureSha256(context, pkgLower) else null
+        val isVerifiedBrowser = isBrowser && AutofillDomainMatcher.isVerifiedBrowserPackage(context, pkgLower, liveCert)
+        if (isBrowser && !isVerifiedBrowser) {
+            // Block impostor APKs squatting known browser package IDs or unreadable browser certs
+            if (AutofillDomainMatcher.isKnownBrowserCertMismatch(context, pkgLower, liveCert) || liveCert.isNullOrEmpty()) {
+                return
+            }
+        }
         val trustedDomain = AutofillDomainMatcher.resolveTrustedWebDomain(pkgLower, webDomain).orEmpty()
 
         if (isBrowser && trustedDomain.isEmpty()) return
@@ -345,6 +465,15 @@ object AutofillSecureStore {
         val root = readRootState(context)
         val entries = parseEntriesArray(root.optJSONArray("entries") ?: JSONArray())
         val pinned = parsePinnedPackages(root.optJSONObject("pinnedPackages"))
+
+        if (isBrowser && !isVerifiedBrowser) {
+            val existingPin = pinned[pkgLower]
+            if (existingPin != null && existingPin.certSha256.isNotEmpty() &&
+                (liveCert.isNullOrEmpty() || !existingPin.certSha256.equals(liveCert, ignoreCase = true))
+            ) {
+                return
+            }
+        }
 
         val existingMatches = AutofillDomainMatcher.findMatches(
             context = context,
