@@ -10,6 +10,7 @@ The Android companion app I built for **[Fuin](https://github.com/Sombooo/Fuin)*
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPLv3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![Platform: Android](https://img.shields.io/badge/Platform-Android-366347.svg)](#)
 [![Desktop: Fuin](https://img.shields.io/badge/Desktop-macOS%20%7C%20Windows%20%7C%20Linux-lightgray.svg)](https://github.com/Sombooo/Fuin)
+[![Support: Buy Me A Coffee](https://img.shields.io/badge/Support-Buy_Me_A_Coffee-c88040.svg)](https://fuindev.lemonsqueezy.com/checkout/buy/c898c753-098b-4c0b-a721-77332db06bdc)
 
 </div>
 
