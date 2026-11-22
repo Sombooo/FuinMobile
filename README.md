@@ -62,16 +62,6 @@ I'm a solo developer working on this in my own time, not a big security company.
 
 ---
 
-## Support & Feedback
-
-Fuin Mobile is open-source software under **AGPLv3**. If you test it out and find a bug or UX issue, opening an issue or PR helps a lot. And if it helps you and you feel like buying me a coffee, you can do so below.
-
-Wishing you all happy days — and don't forget to drink some water and stay hydrated!
-
-[![Support via Lemon Squeezy](https://img.shields.io/badge/Support_Fuin-Buy_Me_A_Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://fuindev.lemonsqueezy.com/checkout/buy/c898c753-098b-4c0b-a721-77332db06bdc)
-
----
-
 ## Technical Details & Running from Source
 
 ### Security Summary (Plainly Stated)
@@ -94,3 +84,13 @@ npm test
 # Start the Metro bundler
 npx expo start
 ```
+
+---
+
+## Support & Feedback
+
+Fuin Mobile is open-source software under **AGPLv3**. If you test it out and find a bug or UX issue, opening an issue or PR helps a lot. And if it helps you and you feel like buying me a coffee, you can do so below.
+
+Wishing you all happy days — and don't forget to drink some water and stay hydrated!
+
+[![Support via Lemon Squeezy](https://img.shields.io/badge/Support_Fuin-Buy_Me_A_Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://fuindev.lemonsqueezy.com/checkout/buy/c898c753-098b-4c0b-a721-77332db06bdc)
